@@ -66,24 +66,23 @@ export default function Dashboard() {
 
   return (
     <Box sx={{ display: "flex", minHeight: "100vh" }}>
-      {/* Modern AppBar with gradient */}
+      {/* Professional AppBar */}
       <AppBar position="fixed" sx={{ zIndex: 1201 }}>
         <Toolbar>
-          <TrendingIcon sx={{ mr: 2, fontSize: 32 }} />
-          <Typography variant="h5" sx={{ fontWeight: 700, flexGrow: 1 }}>
-            Performance Tracker Pro
+          <TrendingIcon sx={{ mr: 2, fontSize: 28, color: "#7f1d1d" }} />
+          <Typography variant="h6" sx={{ fontWeight: 600, flexGrow: 1, letterSpacing: "-0.01em", color: "#1f2937" }}>
+            Performance Tracker
           </Typography>
           <Chip
-            label="Live"
-            color="success"
+            label="LIVE"
             size="small"
             sx={{
               fontWeight: 600,
-              animation: "pulse 2s infinite",
-              "@keyframes pulse": {
-                "0%, 100%": { opacity: 1 },
-                "50%": { opacity: 0.7 },
-              },
+              bgcolor: "rgba(21, 128, 61, 0.1)",
+              color: "#15803d",
+              border: "1px solid rgba(21, 128, 61, 0.2)",
+              fontSize: 11,
+              height: 24,
             }}
           />
         </Toolbar>
@@ -123,19 +122,20 @@ export default function Dashboard() {
               }}
               sx={{ mb: 1 }}
             >
-              <FundedIcon sx={{ mr: 2, color: "primary.main" }} />
+              <FundedIcon sx={{ mr: 2, color: "#6b7280", fontSize: 20 }} />
               <ListItemText
                 primary="Funded Accounts"
-                primaryTypographyProps={{ fontWeight: 600 }}
+                primaryTypographyProps={{ fontWeight: 500, fontSize: 14, color: "#1f2937" }}
               />
               <Chip
                 label={fundedAccounts.length}
                 size="small"
                 sx={{
-                  bgcolor: "primary.main",
-                  color: "white",
-                  height: 24,
-                  fontWeight: 700,
+                  bgcolor: "rgba(127, 29, 29, 0.1)",
+                  color: "#7f1d1d",
+                  height: 22,
+                  fontWeight: 600,
+                  fontSize: 12,
                 }}
               />
             </ListItemButton>
@@ -146,19 +146,20 @@ export default function Dashboard() {
                 setActiveAccount(null);
               }}
             >
-              <OwnIcon sx={{ mr: 2, color: "secondary.main" }} />
+              <OwnIcon sx={{ mr: 2, color: "#6b7280", fontSize: 20 }} />
               <ListItemText
                 primary="Own Accounts"
-                primaryTypographyProps={{ fontWeight: 600 }}
+                primaryTypographyProps={{ fontWeight: 500, fontSize: 14, color: "#1f2937" }}
               />
               <Chip
                 label={ownAccounts.length}
                 size="small"
                 sx={{
-                  bgcolor: "secondary.main",
-                  color: "white",
-                  height: 24,
-                  fontWeight: 700,
+                  bgcolor: "rgba(127, 29, 29, 0.1)",
+                  color: "#7f1d1d",
+                  height: 22,
+                  fontWeight: 600,
+                  fontSize: 12,
                 }}
               />
             </ListItemButton>
@@ -182,12 +183,12 @@ export default function Dashboard() {
               size="small"
               onClick={() => setOpenDialog(true)}
               sx={{
-                bgcolor: "primary.main",
-                color: "white",
+                bgcolor: "rgba(127, 29, 29, 0.1)",
+                color: "#7f1d1d",
                 width: 24,
                 height: 24,
                 "&:hover": {
-                  bgcolor: "primary.dark",
+                  bgcolor: "rgba(127, 29, 29, 0.15)",
                 },
               }}
             >
@@ -210,7 +211,7 @@ export default function Dashboard() {
           flexGrow: 1,
           p: 1,
           ml: "280px",
-          background: "linear-gradient(135deg, #0f172a 0%, #1e293b 100%)",
+          background: "#ffffff",
           minHeight: "100vh",
         }}
       >
@@ -237,12 +238,12 @@ export default function Dashboard() {
             }}
           >
             <TrendingIcon
-              sx={{ fontSize: 120, color: "primary.main", opacity: 0.3, mb: 3 }}
+              sx={{ fontSize: 80, color: "#7f1d1d", opacity: 0.15, mb: 3 }}
             />
-            <Typography variant="h4" sx={{ mb: 2, color: "text.primary" }}>
-              Welcome to Performance Tracker Pro
+            <Typography variant="h5" sx={{ mb: 1, color: "#1f2937", fontWeight: 500 }}>
+              Welcome to Performance Tracker
             </Typography>
-            <Typography variant="body1" sx={{ color: "text.secondary" }}>
+            <Typography variant="body2" sx={{ color: "#6b7280" }}>
               Select an account from the sidebar to view and manage your trades
             </Typography>
           </Box>

@@ -17,55 +17,63 @@ enableIndexedDbPersistence(db).catch((err) => {
 
 const theme = createTheme({
   palette: {
-    mode: "dark",
+    mode: "light",
     primary: {
-      main: "#6366f1",
-      light: "#818cf8",
-      dark: "#4f46e5",
+      main: "#7f1d1d", // Dark maroon
+      light: "#991b1b",
+      dark: "#5c0f0f",
     },
     secondary: {
-      main: "#ec4899",
-      light: "#f472b6",
-      dark: "#db2777",
+      main: "#1f2937", // Dark gray/black
+      light: "#374151",
+      dark: "#111827",
     },
     success: {
-      main: "#10b981",
-      light: "#34d399",
-      dark: "#059669",
+      main: "#15803d",
+      light: "#16a34a",
+      dark: "#14532d",
     },
     error: {
-      main: "#ef4444",
-      light: "#f87171",
-      dark: "#dc2626",
+      main: "#991b1b",
+      light: "#dc2626",
+      dark: "#7f1d1d",
     },
     warning: {
-      main: "#f59e0b",
-      light: "#fbbf24",
-      dark: "#d97706",
+      main: "#92400e",
+      light: "#b45309",
+      dark: "#78350f",
+    },
+    info: {
+      main: "#1e40af",
+      light: "#2563eb",
+      dark: "#1e3a8a",
     },
     background: {
-      default: "#0f172a",
-      paper: "#1e293b",
+      default: "#ffffff",
+      paper: "#fafafa",
     },
     text: {
-      primary: "#f1f5f9",
-      secondary: "#cbd5e1",
+      primary: "#1f2937",
+      secondary: "#6b7280",
     },
   },
-  shape: { borderRadius: 12 },
+  shape: { borderRadius: 6 },
   typography: {
-    fontFamily: '"Inter", "Segoe UI", "Roboto", "Helvetica", "Arial", sans-serif',
+    fontFamily: '"Inter", "SF Pro Display", "Segoe UI", "Roboto", sans-serif',
     h4: {
-      fontWeight: 700,
+      fontWeight: 600,
       letterSpacing: "-0.02em",
+      color: "#1f2937",
     },
     h5: {
-      fontWeight: 700,
+      fontWeight: 600,
       letterSpacing: "-0.01em",
+      color: "#1f2937",
     },
     h6: {
       fontWeight: 600,
       letterSpacing: "-0.01em",
+      color: "#1f2937",
     },
   },
   components: {
@@ -73,14 +81,21 @@ const theme = createTheme({
       styleOverrides: {
         root: {
           textTransform: "none",
-          fontWeight: 600,
-          borderRadius: 8,
-          padding: "10px 24px",
+          fontWeight: 500,
+          borderRadius: 6,
+          padding: "10px 20px",
         },
         contained: {
-          boxShadow: "0 4px 14px 0 rgba(99, 102, 241, 0.39)",
+          boxShadow: "0 1px 2px rgba(0, 0, 0, 0.1)",
           "&:hover": {
-            boxShadow: "0 6px 20px rgba(99, 102, 241, 0.5)",
+            boxShadow: "0 2px 4px rgba(0, 0, 0, 0.15)",
+          },
+        },
+        outlined: {
+          borderWidth: "1.5px",
+          "&:hover": {
+            borderWidth: "1.5px",
+            backgroundColor: "rgba(127, 29, 29, 0.04)",
           },
         },
       },
@@ -89,35 +104,43 @@ const theme = createTheme({
       styleOverrides: {
         root: {
           backgroundImage: "none",
+          borderRadius: 8,
+          boxShadow: "0 1px 3px rgba(0, 0, 0, 0.1)",
         },
       },
     },
     MuiDrawer: {
       styleOverrides: {
         paper: {
-          background: "linear-gradient(180deg, #1e293b 0%, #0f172a 100%)",
-          borderRight: "1px solid rgba(148, 163, 184, 0.1)",
+          background: "#f9fafb",
+          borderRight: "1px solid #e5e7eb",
         },
       },
     },
     MuiAppBar: {
       styleOverrides: {
         root: {
-          background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-          boxShadow: "0 4px 20px 0 rgba(0, 0, 0, 0.3)",
+          background: "#ffffff",
+          color: "#1f2937",
+          boxShadow: "0 1px 3px rgba(0, 0, 0, 0.1)",
+          borderBottom: "1px solid #e5e7eb",
         },
       },
     },
     MuiListItemButton: {
       styleOverrides: {
         root: {
-          borderRadius: 8,
+          borderRadius: 6,
           marginBottom: 4,
           "&.Mui-selected": {
-            background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+            background: "rgba(127, 29, 29, 0.08)",
+            borderLeft: "3px solid #7f1d1d",
             "&:hover": {
-              background: "linear-gradient(135deg, #5568d3 0%, #66407a 100%)",
+              background: "rgba(127, 29, 29, 0.12)",
             },
+          },
+          "&:hover": {
+            background: "rgba(127, 29, 29, 0.04)",
           },
         },
       },

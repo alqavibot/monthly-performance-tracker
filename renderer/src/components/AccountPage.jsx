@@ -13,6 +13,11 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  Tabs,
+  Tab,
+  Card,
+  CardContent,
+  Divider,
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
 import { db } from "../App";
@@ -35,6 +40,9 @@ export default function AccountPage({ accountKey, columns }) {
   const [reasonDialog, setReasonDialog] = useState({ open: false, rowId: null, instrument: "", type: "" });
   const [tempReason, setTempReason] = useState("");
   const [performanceDialogOpen, setPerformanceDialogOpen] = useState(false);
+  const [expectedRisk, setExpectedRisk] = useState(""); // New state for expected risk amount
+  const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
+  const [feedbackView, setFeedbackView] = useState("weekly"); // "weekly" or "monthly"
 
   // Create one blank row template with auto-filled date
   function emptyRow() {
@@ -95,9 +103,247 @@ export default function AccountPage({ accountKey, columns }) {
     return { tpCount, slCount, total: tpCount + slCount };
   }
 
+  // Parse date from "DATE/DAY" field (format: "26 Oct - Sunday")
+  // Returns date normalized to midnight for accurate comparison
+  function parseTradeDate(dateString) {
+    if (!dateString) return null;
+    try {
+      const parts = dateString.split(" - ")[0].trim(); // "26 Oct"
+      const [day, month] = parts.split(" ");
+      const monthMap = {
+        'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5,
+        'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11
+      };
+      const monthIndex = monthMap[month];
+      const year = new Date().getFullYear();
+      // Create date at midnight (00:00:00) to avoid time-of-day issues
+      const date = new Date(year, monthIndex, parseInt(day), 0, 0, 0, 0);
+      return date;
+    } catch (err) {
+      console.warn("Failed to parse date:", dateString, err);
+      return null;
+    }
+  }
+
+  // Get start of current week (Sunday) at midnight
+  function getWeekStart(date = new Date()) {
+    const d = new Date(date);
+    const day = d.getDay();
+    const diff = d.getDate() - day;
+    // Set to midnight for accurate comparison
+    return new Date(d.getFullYear(), d.getMonth(), diff, 0, 0, 0, 0);
+  }
+
+  // Get start of current month at midnight
+  function getMonthStart(date = new Date()) {
+    return new Date(date.getFullYear(), date.getMonth(), 1, 0, 0, 0, 0);
+  }
+  
+  // Get current date normalized to midnight
+  function getTodayMidnight() {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+  }
+
+  // Find the most common reason from an array (only the top one)
+  function getMostCommonReason(reasons) {
+    if (reasons.length === 0) return null;
+    
+    const counts = {};
+    reasons.forEach(reason => {
+      const normalized = reason.trim().toLowerCase();
+      counts[normalized] = (counts[normalized] || 0) + 1;
+    });
+    
+    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+    if (sorted.length === 0) return null;
+    
+    return { reason: sorted[0][0], count: sorted[0][1] };
+  }
+
+  // Get all weeks in current month
+  function getWeeksInCurrentMonth() {
+    const today = getTodayMidnight();
+    const monthStart = getMonthStart();
+    const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0, 23, 59, 59, 999); // Last day of month at end of day
+    
+    const weeks = [];
+    let currentWeekStart = getWeekStart(monthStart);
+    
+    while (currentWeekStart <= monthEnd) {
+      const weekEnd = new Date(currentWeekStart);
+      weekEnd.setDate(weekEnd.getDate() + 6);
+      weekEnd.setHours(23, 59, 59, 999); // End of day Saturday
+      
+      const effectiveEnd = weekEnd > today ? today : weekEnd; // Don't go beyond current date
+      
+      weeks.push({
+        start: new Date(currentWeekStart),
+        end: effectiveEnd,
+      });
+      
+      currentWeekStart = new Date(currentWeekStart);
+      currentWeekStart.setDate(currentWeekStart.getDate() + 7);
+    }
+    
+    console.log(`Found ${weeks.length} weeks in current month:`, weeks.map(w => `${w.start.toDateString()} to ${w.end.toDateString()}`));
+    return weeks;
+  }
+
+  // Analyze data from trade table (for weekly reports)
+  function analyzeFromTrades(startDate, endDate) {
+    // Filter trades by date range
+    const periodTrades = rows.filter(row => {
+      const tradeDate = parseTradeDate(row["DATE/DAY"]);
+      if (!tradeDate) {
+        console.warn("Could not parse trade date:", row["DATE/DAY"]);
+        return false;
+      }
+      const inRange = tradeDate >= startDate && tradeDate <= endDate;
+      console.log(`Trade date: ${tradeDate.toDateString()}, Range: ${startDate.toDateString()} to ${endDate.toDateString()}, In range: ${inRange}`);
+      return inRange;
+    });
+    
+    console.log(`Filtered ${periodTrades.length} trades for range ${startDate.toDateString()} to ${endDate.toDateString()}`);
+
+    // 1. Mismatched Instruments
+    const mismatchedInstruments = periodTrades.filter(r => r._instrumentReason);
+    const instrumentReasons = mismatchedInstruments.map(r => r._instrumentReason).filter(Boolean);
+    
+    // 2. Risk Mismatches
+    const riskMismatches = periodTrades.filter(r => r._riskMismatchReason);
+    const riskMismatchReasons = riskMismatches.map(r => r._riskMismatchReason).filter(Boolean);
+    
+    // 3. Over Risked
+    const overRisked = periodTrades.filter(r => r._overRiskReason);
+    const overRiskReasons = overRisked.map(r => r._overRiskReason).filter(Boolean);
+    
+    // 4. Early Exits
+    const earlyExits = periodTrades.filter(r => r._earlyExitReason);
+    const earlyExitReasons = earlyExits.map(r => r._earlyExitReason).filter(Boolean);
+    
+    // 5. TP/SL Analysis
+    const tpTrades = periodTrades.filter(r => {
+      const tpOrSl = (r["TP OR SL ?"] || "").toLowerCase().trim();
+      return tpOrSl.includes("tp") || tpOrSl.includes("take profit");
+    });
+    const slTrades = periodTrades.filter(r => {
+      const tpOrSl = (r["TP OR SL ?"] || "").toLowerCase().trim();
+      return tpOrSl.includes("sl") || tpOrSl.includes("stop loss");
+    });
+    
+    const tpFeedback = tpTrades.map(r => r["FEEDBACK"]).filter(Boolean);
+    const slFeedback = slTrades.map(r => r["FEEDBACK"]).filter(Boolean);
+
+    return {
+      totalTrades: periodTrades.length,
+      mismatchedInstruments: {
+        count: mismatchedInstruments.length,
+        reasons: instrumentReasons,
+        mostCommonReason: getMostCommonReason(instrumentReasons)
+      },
+      riskMismatches: {
+        count: riskMismatches.length,
+        reasons: riskMismatchReasons,
+        mostCommonReason: getMostCommonReason(riskMismatchReasons)
+      },
+      overRisked: {
+        count: overRisked.length,
+        reasons: overRiskReasons,
+        mostCommonReason: getMostCommonReason(overRiskReasons)
+      },
+      earlyExits: {
+        count: earlyExits.length,
+        reasons: earlyExitReasons,
+        mostCommonReason: getMostCommonReason(earlyExitReasons)
+      },
+      tpAnalysis: {
+        count: tpTrades.length,
+        feedback: tpFeedback,
+        mostCommonFeedback: getMostCommonReason(tpFeedback)
+      },
+      slAnalysis: {
+        count: slTrades.length,
+        feedback: slFeedback,
+        mostCommonFeedback: getMostCommonReason(slFeedback)
+      }
+    };
+  }
+
+  // Aggregate weekly reports into monthly report
+  function aggregateWeeklyReports(weeks) {
+    const weeklyReports = weeks.map(week => analyzeFromTrades(week.start, week.end));
+    
+    // Aggregate all reasons from all weeks
+    const allInstrumentReasons = weeklyReports.flatMap(w => w.mismatchedInstruments.reasons);
+    const allRiskMismatchReasons = weeklyReports.flatMap(w => w.riskMismatches.reasons);
+    const allOverRiskReasons = weeklyReports.flatMap(w => w.overRisked.reasons);
+    const allEarlyExitReasons = weeklyReports.flatMap(w => w.earlyExits.reasons);
+    const allTpFeedback = weeklyReports.flatMap(w => w.tpAnalysis.feedback);
+    const allSlFeedback = weeklyReports.flatMap(w => w.slAnalysis.feedback);
+    
+    // Sum up counts
+    const totalTrades = weeklyReports.reduce((sum, w) => sum + w.totalTrades, 0);
+    const totalMismatchedInstruments = weeklyReports.reduce((sum, w) => sum + w.mismatchedInstruments.count, 0);
+    const totalRiskMismatches = weeklyReports.reduce((sum, w) => sum + w.riskMismatches.count, 0);
+    const totalOverRisked = weeklyReports.reduce((sum, w) => sum + w.overRisked.count, 0);
+    const totalEarlyExits = weeklyReports.reduce((sum, w) => sum + w.earlyExits.count, 0);
+    const totalTp = weeklyReports.reduce((sum, w) => sum + w.tpAnalysis.count, 0);
+    const totalSl = weeklyReports.reduce((sum, w) => sum + w.slAnalysis.count, 0);
+
+    return {
+      totalTrades,
+      weeklyReports, // Include weekly breakdown
+      mismatchedInstruments: {
+        count: totalMismatchedInstruments,
+        mostCommonReason: getMostCommonReason(allInstrumentReasons)
+      },
+      riskMismatches: {
+        count: totalRiskMismatches,
+        mostCommonReason: getMostCommonReason(allRiskMismatchReasons)
+      },
+      overRisked: {
+        count: totalOverRisked,
+        mostCommonReason: getMostCommonReason(allOverRiskReasons)
+      },
+      earlyExits: {
+        count: totalEarlyExits,
+        mostCommonReason: getMostCommonReason(allEarlyExitReasons)
+      },
+      tpAnalysis: {
+        count: totalTp,
+        mostCommonFeedback: getMostCommonReason(allTpFeedback)
+      },
+      slAnalysis: {
+        count: totalSl,
+        mostCommonFeedback: getMostCommonReason(allSlFeedback)
+      }
+    };
+  }
+
+  // Main analysis function - determines whether to use trade data or weekly aggregation
+  function analyzeFeedback(period = "weekly") {
+    console.log(`Analyzing feedback for period: ${period}`);
+    console.log(`Total rows in table: ${rows.length}`);
+    
+    if (period === "weekly") {
+      // Weekly report: Analyze directly from trade table
+      const today = getTodayMidnight();
+      const weekStart = getWeekStart();
+      console.log(`Weekly analysis from ${weekStart.toDateString()} to ${today.toDateString()}`);
+      return analyzeFromTrades(weekStart, today);
+    } else {
+      // Monthly report: Aggregate from weekly reports
+      console.log("Starting monthly analysis - aggregating weekly reports");
+      const weeks = getWeeksInCurrentMonth();
+      return aggregateWeeklyReports(weeks);
+    }
+  }
+
   // Load data on mount or account switch
   useEffect(() => {
     setLoaded(false); // Reset loaded state
+    setExpectedRisk(""); // Reset expected risk for new account
     async function load() {
       const key = accountKey;
       console.log("Loading account:", key);
@@ -108,7 +354,14 @@ export default function AccountPage({ accountKey, columns }) {
         if (raw) {
           const parsed = JSON.parse(raw);
           console.log("Loaded from local cache:", parsed);
-          setRows(parsed);
+          if (Array.isArray(parsed)) {
+            // Old format: just rows array
+            setRows(parsed);
+          } else {
+            // New format: object with rows and expectedRisk
+            setRows(parsed.rows || []);
+            setExpectedRisk(parsed.expectedRisk || "");
+          }
           setLoaded(true);
           return;
         }
@@ -118,7 +371,14 @@ export default function AccountPage({ accountKey, columns }) {
         if (stored) {
           const parsed = JSON.parse(stored);
           console.log("Loaded from browser storage:", parsed);
-          setRows(parsed);
+          if (Array.isArray(parsed)) {
+            // Old format: just rows array
+            setRows(parsed);
+          } else {
+            // New format: object with rows and expectedRisk
+            setRows(parsed.rows || []);
+            setExpectedRisk(parsed.expectedRisk || "");
+          }
           setLoaded(true);
           return;
         }
@@ -133,13 +393,16 @@ export default function AccountPage({ accountKey, columns }) {
           const loadedRows = data.rows && data.rows.length > 0 ? data.rows : [emptyRow()];
           console.log("Loaded from Firebase:", loadedRows);
           setRows(loadedRows);
+          setExpectedRisk(data.expectedRisk || "");
         } else {
           console.log("No existing data, creating empty row");
           setRows([emptyRow()]);
+          setExpectedRisk("");
         }
       } catch (err) {
         console.warn("Firebase load failed (using local-only mode):", err.message);
         setRows([emptyRow()]);
+        setExpectedRisk("");
       }
       setLoaded(true);
     }
@@ -152,13 +415,17 @@ export default function AccountPage({ accountKey, columns }) {
     
     const timer = setTimeout(() => {
     const key = accountKey;
+      const dataToSave = {
+        rows,
+        expectedRisk
+      };
       
       // Save locally ONLY (if Electron)
     if (hasElectron) {
         try {
       window.electronAPI.writeLocalFile(
         localFileName(key),
-        JSON.stringify(rows, null, 2)
+        JSON.stringify(dataToSave, null, 2)
       );
           console.log("✓ Auto-saved to local storage");
         } catch (err) {
@@ -167,7 +434,7 @@ export default function AccountPage({ accountKey, columns }) {
       } else {
         // For web version, save to localStorage
         try {
-          localStorage.setItem(`account_${key}`, JSON.stringify(rows));
+          localStorage.setItem(`account_${key}`, JSON.stringify(dataToSave));
           console.log("✓ Auto-saved to browser storage");
         } catch (err) {
           console.warn("Browser storage failed:", err);
@@ -176,7 +443,7 @@ export default function AccountPage({ accountKey, columns }) {
     }, 500); // Fast local save
 
     return () => clearTimeout(timer);
-  }, [rows, loaded, accountKey]);
+  }, [rows, expectedRisk, loaded, accountKey]);
 
   // Check if instrument matches account name (supports multiple instruments)
   const checkInstrumentMatch = (instrument) => {
@@ -268,6 +535,22 @@ export default function AccountPage({ accountKey, columns }) {
     }
   };
   
+  // Validate calculated risk against expected risk
+  const validateCalculatedRisk = (id, value) => {
+    const trimmedValue = value.trim();
+    const trimmedExpected = expectedRisk.trim();
+    
+    // Only validate if both values exist and don't match
+    if (trimmedExpected !== "" && trimmedValue !== "" && trimmedValue !== trimmedExpected) {
+      // Check if already has a reason
+      const row = rows.find(r => r._id === id);
+      if (!row?._riskMismatchReason) {
+        // Ask for reason
+        setReasonDialog({ open: true, rowId: id, instrument: "", type: "riskmismatch" });
+      }
+    }
+  };
+  
   const handleReasonSubmit = () => {
     const { rowId, instrument, type } = reasonDialog;
     
@@ -292,6 +575,14 @@ export default function AccountPage({ accountKey, columns }) {
         prev.map((r) => 
           r._id === rowId 
             ? { ...r, "_earlyExitReason": tempReason } 
+            : r
+        )
+      );
+    } else if (type === "riskmismatch") {
+      setRows((prev) => 
+        prev.map((r) => 
+          r._id === rowId 
+            ? { ...r, "_riskMismatchReason": tempReason } 
             : r
         )
       );
@@ -321,6 +612,14 @@ export default function AccountPage({ accountKey, columns }) {
             : r
         )
       );
+    } else if (type === "riskmismatch") {
+      setRows((prev) =>
+        prev.map((r) => 
+          r._id === rowId 
+            ? { ...r, "CALCULATED RISK": "" } 
+            : r
+        )
+      );
     }
     
     setReasonDialog({ open: false, rowId: null, instrument: "", type: "" });
@@ -336,7 +635,7 @@ export default function AccountPage({ accountKey, columns }) {
     const key = accountKey;
     console.log("Adding new row, syncing to cloud...");
     
-    setDoc(doc(db, "accounts", encodeURIComponent(key)), { rows: updatedRows }, { merge: true })
+    setDoc(doc(db, "accounts", encodeURIComponent(key)), { rows: updatedRows, expectedRisk }, { merge: true })
       .then(() => {
         console.log("✓ New row synced to cloud");
       })
@@ -353,7 +652,7 @@ export default function AccountPage({ accountKey, columns }) {
     const key = accountKey;
     console.log("Deleting row, syncing to cloud...");
     
-    setDoc(doc(db, "accounts", encodeURIComponent(key)), { rows: updatedRows }, { merge: true })
+    setDoc(doc(db, "accounts", encodeURIComponent(key)), { rows: updatedRows, expectedRisk }, { merge: true })
       .then(() => {
         console.log("✓ Deletion synced to cloud");
       })
@@ -369,15 +668,14 @@ export default function AccountPage({ accountKey, columns }) {
         p: 0,
       }}
     >
-      {/* Modern Header Card */}
+      {/* Professional Header */}
       <Box
         sx={{
-          background: "linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(168, 85, 247, 0.1) 100%)",
-          borderRadius: 3,
+          background: "#fafafa",
+          borderRadius: 2,
           p: 2,
           mb: 2,
-          border: "1px solid rgba(99, 102, 241, 0.2)",
-          backdropFilter: "blur(20px)",
+          border: "1px solid #e5e7eb",
         }}
       >
         <Stack direction="row" alignItems="center" justifyContent="space-between">
@@ -399,12 +697,14 @@ export default function AccountPage({ accountKey, columns }) {
               )}
               {loaded && !saving && (
                 <Chip
-                  label="Auto-saved locally"
+                  label="Auto-saved"
                   size="small"
                   sx={{
-                    bgcolor: "success.main",
-                    color: "white",
-                    fontWeight: 600,
+                    bgcolor: "rgba(21, 128, 61, 0.1)",
+                    color: "#15803d",
+                    border: "1px solid rgba(21, 128, 61, 0.2)",
+                    fontWeight: 500,
+                    fontSize: 11,
                   }}
                 />
               )}
@@ -413,16 +713,49 @@ export default function AccountPage({ accountKey, columns }) {
               {accountKey.split("/")[0]} • {rows.length} {rows.length === 1 ? "trade" : "trades"}
       </Typography>
           </Box>
-          <Stack direction="row" spacing={2}>
+          <Stack direction="row" spacing={2} alignItems="center">
+            <TextField
+              label="Expected Risk"
+              value={expectedRisk}
+              onChange={(e) => setExpectedRisk(e.target.value)}
+              variant="outlined"
+              size="small"
+              placeholder="e.g., 100"
+              sx={{
+                width: 150,
+                "& .MuiInputBase-root": {
+                  backgroundColor: "#ffffff",
+                  height: "40px",
+                },
+                "& .MuiInputBase-input": {
+                  color: "#7f1d1d",
+                  fontWeight: 500,
+                  fontSize: 13,
+                },
+                "& .MuiInputLabel-root": {
+                  color: "#6b7280",
+                  fontSize: 12,
+                },
+                "& fieldset": { 
+                  borderColor: "#d1d5db",
+                },
+                "&:hover fieldset": {
+                  borderColor: "#7f1d1d",
+                },
+                "& .Mui-focused fieldset": {
+                  borderColor: "#7f1d1d",
+                },
+              }}
+            />
             <Button
               variant="contained"
-              color="success"
+              color="primary"
               onClick={addRow}
               sx={{
                 px: 3,
-                py: 1.5,
-                fontSize: 15,
-                boxShadow: "0 4px 14px 0 rgba(16, 185, 129, 0.39)",
+                py: 1,
+                fontSize: 14,
+                fontWeight: 500,
               }}
             >
           + Add New Trade
@@ -435,17 +768,18 @@ export default function AccountPage({ accountKey, columns }) {
                 const key = accountKey;
                 setSaving(true);
                 console.log("Manual cloud save - Rows:", rows);
+                const dataToSave = { rows, expectedRisk };
                 
-                setDoc(doc(db, "accounts", encodeURIComponent(key)), { rows }, { merge: true })
+                setDoc(doc(db, "accounts", encodeURIComponent(key)), dataToSave, { merge: true })
                   .then(() => {
                     // Also save locally
             if (hasElectron) {
               window.electronAPI.writeLocalFile(
                         localFileName(key),
-                        JSON.stringify(rows, null, 2)
+                        JSON.stringify(dataToSave, null, 2)
                       );
                     } else {
-                      localStorage.setItem(`account_${key}`, JSON.stringify(rows));
+                      localStorage.setItem(`account_${key}`, JSON.stringify(dataToSave));
                     }
                     setSaving(false);
                     console.log("✓ Cloud save successful");
@@ -459,7 +793,7 @@ export default function AccountPage({ accountKey, columns }) {
                     if (err.code === 'permission-denied') {
                       alert("⚠️ Cloud sync is disabled.\n\nYour data is safely saved locally on your computer.\n\nTo enable cloud sync:\n1. Go to Firebase Console\n2. Update Firestore Rules\n3. See console for instructions");
                       console.log("%c📝 TO ENABLE CLOUD SYNC:", "color: #6366f1; font-size: 16px; font-weight: bold");
-                      console.log("1. Go to: https://console.firebase.google.com/");
+                      console.log("1. Go to: https://console.firebase.com/");
                       console.log("2. Select your project: monthly-performance-tracker");
                       console.log("3. Click 'Firestore Database' → 'Rules'");
                       console.log("4. Replace rules with:\n\nrules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /{document=**} {\n      allow read, write: if true;\n    }\n  }\n}");
@@ -471,32 +805,89 @@ export default function AccountPage({ accountKey, columns }) {
               }}
               sx={{
                 px: 3,
-                py: 1.5,
-                fontSize: 15,
+                py: 1,
+                fontSize: 14,
+                fontWeight: 500,
               }}
               disabled={saving}
             >
-              {saving ? "⏳ Saving..." : "☁️ Save to Cloud"}
+              {saving ? "Saving..." : "Save to Cloud"}
             </Button>
             <Button
               variant="outlined"
-              color="secondary"
               onClick={() => {
-                const payload = JSON.stringify(rows, null, 2);
-              const blob = new Blob([payload], { type: "application/json" });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement("a");
-              a.href = url;
-              a.download = `${accountKey.replace(/[\\/\\s:]/g, "_")}.json`;
-              a.click();
+                // Prepare data for Excel export
+                const excelData = rows.map((row, index) => {
+                  const cleanRow = {};
+                  columns.forEach(col => {
+                    cleanRow[col] = row[col] || "";
+                  });
+                  // Add metadata columns
+                  if (row._instrumentReason) cleanRow["Instrument Change Reason"] = row._instrumentReason;
+                  if (row._riskMismatchReason) cleanRow["Risk Mismatch Reason"] = row._riskMismatchReason;
+                  if (row._overRiskReason) cleanRow["Over Risk Reason"] = row._overRiskReason;
+                  if (row._earlyExitReason) cleanRow["Early Exit Reason"] = row._earlyExitReason;
+                  return cleanRow;
+                });
+
+                // Create worksheet from data
+                const ws = window.XLSX?.utils?.json_to_sheet(excelData);
+                
+                if (!ws) {
+                  // Fallback to CSV if XLSX not available
+                  const csvContent = [
+                    columns.join(","),
+                    ...rows.map(row => columns.map(col => `"${(row[col] || "").toString().replace(/"/g, '""')}"`).join(","))
+                  ].join("\n");
+                  
+                  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `${accountKey.replace(/[\\/\\s:]/g, "_")}_${new Date().toISOString().split('T')[0]}.csv`;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                  return;
+                }
+
+                // Create workbook and add worksheet
+                const wb = window.XLSX.utils.book_new();
+                window.XLSX.utils.book_append_sheet(wb, ws, "Trades");
+                
+                // Add a summary sheet
+                const summaryData = [
+                  { Metric: "Account", Value: accountKey },
+                  { Metric: "Total Trades", Value: rows.length },
+                  { Metric: "Expected Risk", Value: expectedRisk || "Not Set" },
+                  { Metric: "Export Date", Value: new Date().toLocaleString() },
+                ];
+                const wsSummary = window.XLSX.utils.json_to_sheet(summaryData);
+                window.XLSX.utils.book_append_sheet(wb, wsSummary, "Summary");
+                
+                // Generate Excel file and download
+                const fileName = `${accountKey.replace(/[\\/\\s:]/g, "_")}_${new Date().toISOString().split('T')[0]}.xlsx`;
+                window.XLSX.writeFile(wb, fileName);
               }}
               sx={{
                 px: 3,
-                py: 1.5,
-                fontSize: 15,
+                py: 1,
+                fontSize: 14,
+                fontWeight: 500,
               }}
             >
-              📤 Export JSON
+              Download Excel
+            </Button>
+            <Button
+              variant="outlined"
+              onClick={() => setFeedbackDialogOpen(true)}
+              sx={{
+                px: 3,
+                py: 1,
+                fontSize: 14,
+                fontWeight: 500,
+              }}
+            >
+              View Report
             </Button>
           </Stack>
         </Stack>
@@ -505,9 +896,9 @@ export default function AccountPage({ accountKey, columns }) {
       {/* Month Display */}
       <Box
         sx={{
-          background: "linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(168, 85, 247, 0.15) 100%)",
-          border: "1px solid rgba(99, 102, 241, 0.2)",
-          borderBottom: isWeekend() ? "1px solid rgba(99, 102, 241, 0.2)" : "none",
+          background: "#fafafa",
+          border: "1px solid #e5e7eb",
+          borderBottom: isWeekend() ? "1px solid #e5e7eb" : "none",
           p: 1.5,
           display: "flex",
           alignItems: "center",
@@ -515,14 +906,15 @@ export default function AccountPage({ accountKey, columns }) {
         }}
       >
         <Typography
-          variant="h6"
+          variant="subtitle1"
           sx={{
-            fontWeight: 700,
-            color: "primary.light",
-            letterSpacing: 1,
+            fontWeight: 500,
+            color: "#6b7280",
+            letterSpacing: 0.5,
+            fontSize: 14,
           }}
         >
-          📅 {getCurrentMonthYear()}
+          {getCurrentMonthYear()}
         </Typography>
       </Box>
 
@@ -535,8 +927,8 @@ export default function AccountPage({ accountKey, columns }) {
         return (
           <Box
             sx={{
-              background: "linear-gradient(135deg, rgba(239, 68, 68, 0.1) 0%, rgba(245, 158, 11, 0.1) 100%)",
-              border: "1px solid rgba(239, 68, 68, 0.3)",
+              background: "rgba(153, 27, 27, 0.05)",
+              border: "1px solid rgba(153, 27, 27, 0.15)",
               borderTop: "none",
               p: 2,
               mb: 2,
@@ -545,13 +937,14 @@ export default function AccountPage({ accountKey, columns }) {
             <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={2}>
               <Stack direction="row" alignItems="center" spacing={2}>
                 <Typography
-                  variant="h5"
+                  variant="subtitle1"
                   sx={{
-                    fontWeight: 700,
-                    color: "error.light",
+                    fontWeight: 600,
+                    color: "#991b1b",
+                    fontSize: 15,
                   }}
                 >
-                  🚫 Market Closed - {new Date().getDay() === 0 ? "Sunday" : "Saturday"}
+                  Market Closed - {new Date().getDay() === 0 ? "Sunday" : "Saturday"}
                 </Typography>
                 {total > 0 && (
                   <Box
@@ -560,13 +953,9 @@ export default function AccountPage({ accountKey, columns }) {
                       gap: 3,
                       px: 3,
                       py: 1,
-                      background: isGoodPerformance 
-                        ? "rgba(16, 185, 129, 0.15)" 
-                        : "rgba(99, 102, 241, 0.15)",
-                      borderRadius: 2,
-                      border: isGoodPerformance 
-                        ? "1px solid rgba(16, 185, 129, 0.3)"
-                        : "1px solid rgba(99, 102, 241, 0.3)",
+                      background: "#ffffff",
+                      borderRadius: 1.5,
+                      border: "1px solid #e5e7eb",
                     }}
                   >
                     <Box sx={{ textAlign: "center" }}>
@@ -600,17 +989,15 @@ export default function AccountPage({ accountKey, columns }) {
               {total > 0 && (
                 <Button
                   variant="contained"
+                  color={isGoodPerformance ? "success" : "primary"}
                   onClick={() => setPerformanceDialogOpen(true)}
                   sx={{
-                    background: isGoodPerformance 
-                      ? "linear-gradient(135deg, #10b981 0%, #059669 100%)"
-                      : "linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)",
-                    color: "white",
-                    fontWeight: 600,
+                    fontWeight: 500,
                     px: 3,
+                    fontSize: 13,
                   }}
                 >
-                  {isGoodPerformance ? "🎉 View Analysis" : "💡 View Feedback"}
+                  {isGoodPerformance ? "View Analysis" : "View Feedback"}
                 </Button>
               )}
             </Stack>
@@ -638,16 +1025,13 @@ export default function AccountPage({ accountKey, columns }) {
             }}
           >
             <DialogTitle sx={{ 
-              fontWeight: 700, 
-              fontSize: 28,
-              background: isGoodPerformance 
-                ? "linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(5, 150, 105, 0.1) 100%)"
-                : "linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(168, 85, 247, 0.1) 100%)",
-              borderBottom: isGoodPerformance 
-                ? "2px solid rgba(16, 185, 129, 0.3)"
-                : "2px solid rgba(99, 102, 241, 0.3)",
+              fontWeight: 600, 
+              fontSize: 20,
+              background: "#fafafa",
+              borderBottom: "1px solid #e5e7eb",
+              color: "#1f2937",
             }}>
-              📊 Last Week's Performance Analysis
+              Performance Analysis
             </DialogTitle>
             <DialogContent sx={{ mt: 3 }}>
               {total > 0 ? (
@@ -682,26 +1066,27 @@ export default function AccountPage({ accountKey, columns }) {
                   {isGoodPerformance ? (
                     <Box sx={{ 
                       textAlign: "center",
-                      p: 4,
-                      background: "linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(5, 150, 105, 0.1) 100%)",
+                      p: 3,
+                      background: "rgba(34, 197, 94, 0.08)",
                       borderRadius: 2,
-                      border: "2px solid rgba(16, 185, 129, 0.3)",
+                      border: "1px solid rgba(34, 197, 94, 0.25)",
                     }}>
-                      <Typography
-                        variant="h4"
-                        sx={{
-                          fontWeight: 700,
-                          color: "success.light",
-                          mb: 2,
-                        }}
-                      >
-                        🎉 Excellent Work!
-                      </Typography>
                       <Typography
                         variant="h6"
                         sx={{
-                          color: "text.primary",
-                          lineHeight: 1.8,
+                          fontWeight: 600,
+                          color: "#22c55e",
+                          mb: 2,
+                        }}
+                      >
+                        Excellent Work
+                      </Typography>
+                      <Typography
+                        variant="body1"
+                        sx={{
+                          color: "text.secondary",
+                          lineHeight: 1.6,
+                          fontSize: 14,
                         }}
                       >
                         You had more Take Profits than Stop Losses! Keep up the great discipline and strategy execution. 
@@ -710,21 +1095,21 @@ export default function AccountPage({ accountKey, columns }) {
                     </Box>
                   ) : (
                     <Box sx={{ 
-                      p: 4,
-                      background: "linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(168, 85, 247, 0.1) 100%)",
+                      p: 3,
+                      background: "rgba(59, 130, 246, 0.08)",
                       borderRadius: 2,
-                      border: "2px solid rgba(99, 102, 241, 0.3)",
+                      border: "1px solid rgba(59, 130, 246, 0.25)",
                     }}>
                       <Typography
-                        variant="h4"
+                        variant="h6"
                         sx={{
-                          fontWeight: 700,
-                          color: "warning.light",
-                          mb: 3,
+                          fontWeight: 600,
+                          color: "#60a5fa",
+                          mb: 2,
                           textAlign: "center",
                         }}
                       >
-                        💡 Areas to Improve Next Week
+                        Areas to Improve
                       </Typography>
                       <Typography
                         variant="h6"
@@ -801,11 +1186,11 @@ export default function AccountPage({ accountKey, columns }) {
       {/* Modern Table Card */}
       <Box
         sx={{
-          background: "rgba(30, 41, 59, 0.5)",
-          borderRadius: 0,
+          background: "#ffffff",
+          borderRadius: 2,
           overflow: "auto",
-          border: "1px solid rgba(99, 102, 241, 0.1)",
-          backdropFilter: "blur(10px)",
+          border: "2px solid #e5e7eb",
+          boxShadow: "0 1px 3px rgba(0, 0, 0, 0.1)",
         }}
       >
         {/* Table Container */}
@@ -822,15 +1207,15 @@ export default function AccountPage({ accountKey, columns }) {
           <Box
             key={c}
             sx={{
-                p: 0.75,
+                p: 1.25,
                 fontWeight: 700,
                 fontSize: 11,
               textAlign: "center",
-                background: "linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(168, 85, 247, 0.2) 100%)",
-                borderBottom: "2px solid rgba(99, 102, 241, 0.3)",
-                color: "primary.light",
+                background: "linear-gradient(135deg, #7f1d1d 0%, #991b1b 100%)",
+                borderBottom: "3px solid #5c0f0f",
+                color: "#ffffff",
                 textTransform: "uppercase",
-                letterSpacing: 0.3,
+                letterSpacing: 0.5,
             }}
           >
             {c}
@@ -838,15 +1223,15 @@ export default function AccountPage({ accountKey, columns }) {
         ))}
         <Box
           sx={{
-              p: 0.75,
+              p: 1.25,
               fontWeight: 700,
               fontSize: 11,
             textAlign: "center",
-              background: "linear-gradient(135deg, rgba(99, 102, 241, 0.2) 0%, rgba(168, 85, 247, 0.2) 100%)",
-              borderBottom: "2px solid rgba(99, 102, 241, 0.3)",
-              color: "primary.light",
+              background: "linear-gradient(135deg, #7f1d1d 0%, #991b1b 100%)",
+              borderBottom: "3px solid #5c0f0f",
+              color: "#ffffff",
               textTransform: "uppercase",
-              letterSpacing: 0.3,
+              letterSpacing: 0.5,
           }}
         >
           Actions
@@ -860,16 +1245,25 @@ export default function AccountPage({ accountKey, columns }) {
                 key={c}
                 sx={{
                     p: 0.25,
-                    borderBottom: "1px solid rgba(148, 163, 184, 0.1)",
+                    borderBottom: "1px solid #e5e7eb",
                   display: "flex",
                   justifyContent: "center",
                   alignItems: "center",
                     backgroundColor: idx % 2 === 0 
-                      ? "rgba(15, 23, 42, 0.3)" 
-                      : "rgba(30, 41, 59, 0.3)",
-                    transition: "background-color 0.2s ease",
+                      ? "#ffffff" 
+                      : "#f9fafb",
+                    transition: "all 0.2s ease",
                     "&:hover": {
-                      backgroundColor: "rgba(99, 102, 241, 0.05)",
+                      backgroundColor: "#1f2937",
+                      "& .MuiInputBase-input": {
+                        color: "#ffffff !important",
+                      },
+                      "& .MuiInputBase-root": {
+                        backgroundColor: "#374151 !important",
+                      },
+                      "& .MuiOutlinedInput-notchedOutline": {
+                        borderColor: "#4b5563 !important",
+                      },
                     },
                 }}
               >
@@ -883,8 +1277,8 @@ export default function AccountPage({ accountKey, columns }) {
                         "& .MuiTooltip-tooltip": {
                           maxWidth: 400,
                           fontSize: 13,
-                          bgcolor: "rgba(30, 41, 59, 0.95)",
-                          border: "1px solid rgba(99, 102, 241, 0.3)",
+                          bgcolor: "#1f2937",
+                          border: "1px solid #374151",
                         }
                       }}
                     >
@@ -898,31 +1292,34 @@ export default function AccountPage({ accountKey, columns }) {
                         placeholder="Enter feedback..."
                     sx={{
                           "& .MuiInputBase-root": {
-                            backgroundColor: "rgba(15, 23, 42, 0.6)",
+                            backgroundColor: "#fafafa",
                             borderRadius: 0,
                             padding: "4px 8px",
+                            transition: "all 0.2s ease",
                           },
                       "& .MuiInputBase-input": {
                         textAlign: "left",
                         verticalAlign: "top",
-                            color: "#f1f5f9",
+                            color: "#1f2937",
                             fontSize: 12,
                             padding: "2px 0",
                             overflow: "hidden",
                             textOverflow: "ellipsis",
                             whiteSpace: "nowrap",
+                            transition: "color 0.2s ease",
                             "&:focus": {
                               whiteSpace: "normal",
                             },
                           },
                           "& fieldset": { 
-                            borderColor: "rgba(99, 102, 241, 0.2)",
+                            borderColor: "#d1d5db",
+                            transition: "border-color 0.2s ease",
                           },
                           "&:hover fieldset": {
-                            borderColor: "rgba(99, 102, 241, 0.4)",
+                            borderColor: "#7f1d1d",
                           },
                           "& .Mui-focused fieldset": {
-                            borderColor: "primary.main",
+                            borderColor: "#7f1d1d",
                           },
                         }}
                       />
@@ -1043,6 +1440,70 @@ export default function AccountPage({ accountKey, columns }) {
                         }}
                       />
                     </Tooltip>
+                  ) : c === "CALCULATED RISK" && r._riskMismatchReason ? (
+                    <Tooltip 
+                      title={
+                        <Box>
+                          <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.5 }}>
+                            ⚠️ Risk Mismatch
+                          </Typography>
+                          <Typography variant="body2">
+                            Expected: {expectedRisk}
+                          </Typography>
+                          <Typography variant="body2">
+                            Actual: {r[c]}
+                          </Typography>
+                          <Typography variant="body2" sx={{ mt: 0.5 }}>
+                            Reason: {r._riskMismatchReason}
+                          </Typography>
+                        </Box>
+                      } 
+                      arrow 
+                      placement="top"
+                      enterDelay={200}
+                      sx={{
+                        "& .MuiTooltip-tooltip": {
+                          maxWidth: 300,
+                          fontSize: 12,
+                          bgcolor: "rgba(127, 29, 29, 0.95)",
+                          border: "1px solid rgba(127, 29, 29, 0.5)",
+                        }
+                      }}
+                    >
+                      <TextField
+                        value={r[c] || ""}
+                        onChange={(e) => updateCell(r._id, c, e.target.value)}
+                        onBlur={(e) => validateCalculatedRisk(r._id, e.target.value)}
+                        variant="outlined"
+                        fullWidth
+                        placeholder="..."
+                        size="small"
+                        sx={{
+                          "& .MuiInputBase-root": {
+                            backgroundColor: "rgba(127, 29, 29, 0.1)",
+                            borderRadius: 0,
+                            height: "32px",
+                            border: "1px solid rgba(127, 29, 29, 0.3)",
+                          },
+                          "& .MuiInputBase-input": {
+                            textAlign: "center",
+                            color: "#7f1d1d",
+                            fontWeight: 600,
+                            fontSize: 12,
+                            padding: "6px 8px",
+                          },
+                          "& fieldset": { 
+                            borderColor: "rgba(127, 29, 29, 0.3)",
+                          },
+                          "&:hover fieldset": {
+                            borderColor: "rgba(127, 29, 29, 0.5)",
+                          },
+                          "& .Mui-focused fieldset": {
+                            borderColor: "primary.main",
+                          },
+                        }}
+                      />
+                    </Tooltip>
                   ) : c === "INTRUMENT" && r._instrumentReason ? (
                     <Tooltip 
                       title={
@@ -1118,6 +1579,10 @@ export default function AccountPage({ accountKey, columns }) {
                         if (c === "EARLY EXIT ?") {
                           validateEarlyExit(r._id, e.target.value);
                         }
+                        // Validate CALCULATED RISK field
+                        if (c === "CALCULATED RISK") {
+                          validateCalculatedRisk(r._id, e.target.value);
+                        }
                       }}
                     variant="outlined"
                     fullWidth
@@ -1125,25 +1590,28 @@ export default function AccountPage({ accountKey, columns }) {
                       size="small"
                     sx={{
                         "& .MuiInputBase-root": {
-                          backgroundColor: "rgba(15, 23, 42, 0.6)",
+                          backgroundColor: "#ffffff",
                           borderRadius: 0,
                           height: "32px",
+                          transition: "all 0.2s ease",
                         },
                       "& .MuiInputBase-input": {
                         textAlign: "center",
-                          color: "#f1f5f9",
+                          color: "#1f2937",
                           fontWeight: 500,
                           fontSize: 12,
                           padding: "6px 8px",
+                          transition: "color 0.2s ease",
                         },
                         "& fieldset": { 
-                          borderColor: "rgba(99, 102, 241, 0.2)",
+                          borderColor: "#d1d5db",
+                          transition: "border-color 0.2s ease",
                         },
                         "&:hover fieldset": {
-                          borderColor: "rgba(99, 102, 241, 0.4)",
+                          borderColor: "#7f1d1d",
                         },
                         "& .Mui-focused fieldset": {
-                          borderColor: "primary.main",
+                          borderColor: "#7f1d1d",
                         },
                     }}
                   />
@@ -1153,16 +1621,19 @@ export default function AccountPage({ accountKey, columns }) {
             <Box
               sx={{
                   p: 0.25,
-                  borderBottom: "1px solid rgba(148, 163, 184, 0.1)",
+                  borderBottom: "1px solid #e5e7eb",
                 display: "flex",
                 justifyContent: "center",
                 alignItems: "center",
                   backgroundColor: idx % 2 === 0 
-                    ? "rgba(15, 23, 42, 0.3)" 
-                    : "rgba(30, 41, 59, 0.3)",
-                  transition: "background-color 0.2s ease",
+                    ? "#ffffff" 
+                    : "#f9fafb",
+                  transition: "all 0.2s ease",
                   "&:hover": {
-                    backgroundColor: "rgba(99, 102, 241, 0.05)",
+                    backgroundColor: "#1f2937",
+                    "& .MuiSvgIcon-root": {
+                      color: "#ffffff",
+                    },
                   },
                 }}
               >
@@ -1174,8 +1645,11 @@ export default function AccountPage({ accountKey, columns }) {
                     sx={{
                       padding: "4px",
                       "&:hover": {
-                        backgroundColor: "rgba(239, 68, 68, 0.1)",
+                        backgroundColor: "rgba(239, 68, 68, 0.2)",
                         transform: "scale(1.1)",
+                        "& .MuiSvgIcon-root": {
+                          color: "#ef4444",
+                        },
                       },
                       transition: "all 0.2s ease",
                     }}
@@ -1196,11 +1670,11 @@ export default function AccountPage({ accountKey, columns }) {
         anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
         sx={{
           "& .MuiSnackbarContent-root": {
-            background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
-            borderRadius: 2,
-            boxShadow: "0 8px 32px rgba(16, 185, 129, 0.4)",
-            fontSize: 15,
-            fontWeight: 600,
+            background: "#15803d",
+            borderRadius: 1.5,
+            fontSize: 14,
+            fontWeight: 500,
+            color: "#ffffff",
           },
         }}
       >
@@ -1211,7 +1685,7 @@ export default function AccountPage({ accountKey, columns }) {
             gap: 1,
           }}
         >
-          ✓ Saved to cloud successfully!
+          Saved to cloud successfully
         </Box>
       </Snackbar>
 
@@ -1230,12 +1704,14 @@ export default function AccountPage({ accountKey, columns }) {
       >
         <DialogTitle sx={{ 
           fontWeight: 700, 
-          color: reasonDialog.type === "overrisk" ? "error.main" : "warning.main" 
+          color: reasonDialog.type === "overrisk" ? "error.main" : reasonDialog.type === "riskmismatch" ? "info.main" : "warning.main" 
         }}>
           {reasonDialog.type === "overrisk" 
             ? "⚠️ Over-Risked Detected" 
             : reasonDialog.type === "earlyexit"
             ? "⚠️ Early Exit Detected"
+            : reasonDialog.type === "riskmismatch"
+            ? "⚠️ Risk Mismatch Detected"
             : "⚠️ Different Instrument Detected"}
         </DialogTitle>
         <DialogContent>
@@ -1255,6 +1731,18 @@ export default function AccountPage({ accountKey, columns }) {
               </Typography>
               <Typography variant="body2" sx={{ mb: 2, color: "text.secondary" }}>
                 Please explain why you exited early. Was it due to liquidity sweep or another reason?
+              </Typography>
+            </>
+          ) : reasonDialog.type === "riskmismatch" ? (
+            <>
+              <Typography variant="body1" sx={{ mb: 2, color: "text.secondary" }}>
+                The calculated risk doesn't match the expected risk amount.
+              </Typography>
+              <Typography variant="body2" sx={{ mb: 1, color: "text.secondary" }}>
+                Expected Risk: <strong style={{ color: "#6366f1" }}>{expectedRisk}</strong>
+              </Typography>
+              <Typography variant="body2" sx={{ mb: 2, color: "text.secondary" }}>
+                Please explain why the risk amount is different:
               </Typography>
             </>
           ) : (
@@ -1279,6 +1767,8 @@ export default function AccountPage({ accountKey, columns }) {
                 ? "e.g., Emotional decision, Market opportunity, Revenge trading..."
                 : reasonDialog.type === "earlyexit"
                 ? "e.g., Liquidity sweep, Fear of loss, Market reversal signal..."
+                : reasonDialog.type === "riskmismatch"
+                ? "e.g., Changed position size, Different lot size, Adjusted for volatility..."
                 : "e.g., Testing new strategy, Better opportunity, Risk diversification..."
             }
             value={tempReason}
@@ -1293,10 +1783,447 @@ export default function AccountPage({ accountKey, columns }) {
           <Button
             onClick={handleReasonSubmit}
             variant="contained"
-            color={reasonDialog.type === "overrisk" ? "error" : "warning"}
+            color={reasonDialog.type === "overrisk" ? "error" : reasonDialog.type === "riskmismatch" ? "info" : "warning"}
             disabled={!tempReason.trim()}
           >
             Save Reason
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Comprehensive Feedback Report Dialog */}
+      <Dialog
+        open={feedbackDialogOpen}
+        onClose={() => setFeedbackDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{
+          sx: {
+            bgcolor: "background.paper",
+            borderRadius: 3,
+            maxHeight: "90vh",
+          }
+        }}
+      >
+        <DialogTitle sx={{ 
+          fontWeight: 600, 
+          fontSize: 18,
+          background: "#fafafa",
+          borderBottom: "1px solid #e5e7eb",
+          color: "#1f2937",
+        }}>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            Trading Performance Report
+            <Chip 
+              label={accountKey.split("/")[0]} 
+              size="small" 
+              sx={{ 
+                bgcolor: "rgba(127, 29, 29, 0.1)", 
+                color: "#7f1d1d",
+                fontWeight: 500,
+                fontSize: 11,
+                border: "1px solid rgba(127, 29, 29, 0.2)",
+              }} 
+            />
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ p: 0 }}>
+          <Tabs
+            value={feedbackView}
+            onChange={(e, newValue) => setFeedbackView(newValue)}
+            sx={{ 
+              borderBottom: "1px solid #e5e7eb",
+              bgcolor: "#f9fafb",
+              "& .MuiTab-root": {
+                fontWeight: 500,
+                fontSize: 13,
+                color: "#6b7280",
+              },
+              "& .Mui-selected": {
+                color: "#7f1d1d !important",
+              },
+            }}
+          >
+            <Tab label="This Week" value="weekly" />
+            <Tab label="This Month" value="monthly" />
+          </Tabs>
+
+          {(() => {
+            const analysis = analyzeFeedback(feedbackView);
+            const periodLabel = feedbackView === "weekly" ? "This Week" : "This Month";
+
+            return (
+              <Box sx={{ p: 3 }}>
+                {/* Data Source Indicator */}
+                {feedbackView === "monthly" && (
+                  <Box sx={{ 
+                    mb: 2, 
+                    p: 1.5, 
+                    background: "rgba(127, 29, 29, 0.05)",
+                    border: "1px solid rgba(127, 29, 29, 0.15)",
+                    borderRadius: 1.5,
+                  }}>
+                    <Typography variant="caption" sx={{ color: "#7f1d1d", fontWeight: 500, fontSize: 11 }}>
+                      📊 Monthly data aggregated from {analysis.weeklyReports?.length || 0} weekly report{analysis.weeklyReports?.length !== 1 ? 's' : ''} in this month
+                    </Typography>
+                  </Box>
+                )}
+                {feedbackView === "weekly" && (
+                  <Box sx={{ 
+                    mb: 2, 
+                    p: 1.5, 
+                    background: "rgba(21, 128, 61, 0.05)",
+                    border: "1px solid rgba(21, 128, 61, 0.15)",
+                    borderRadius: 1.5,
+                  }}>
+                    <Typography variant="caption" sx={{ color: "#15803d", fontWeight: 500, fontSize: 11, display: "block" }}>
+                      📈 Weekly data analyzed directly from trade entries
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: "#6b7280", fontSize: 10, display: "block", mt: 0.5 }}>
+                      Date range: {getWeekStart().toLocaleDateString()} - {getTodayMidnight().toLocaleDateString()}
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: "#6b7280", fontSize: 10, display: "block" }}>
+                      Check browser console (F12) for detailed date filtering logs
+                    </Typography>
+                  </Box>
+                )}
+
+                {/* Summary Card */}
+                <Card sx={{ 
+                  mb: 3, 
+                  background: "#fafafa",
+                  border: "1px solid #e5e7eb",
+                }}>
+                  <CardContent>
+                    <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2, color: "#1f2937", fontSize: 15 }}>
+                      {periodLabel} Summary
+                    </Typography>
+                    <Box sx={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 2 }}>
+                      <Box>
+                        <Typography variant="body2" sx={{ color: "text.secondary", fontSize: 12 }}>
+                          Total Trades
+                        </Typography>
+                        <Typography variant="h4" sx={{ fontWeight: 700, color: "#6366f1" }}>
+                          {analysis.totalTrades}
+                        </Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="body2" sx={{ color: "text.secondary", fontSize: 12 }}>
+                          Take Profits
+                        </Typography>
+                        <Typography variant="h4" sx={{ fontWeight: 700, color: "#10b981" }}>
+                          {analysis.tpAnalysis.count}
+                        </Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="body2" sx={{ color: "text.secondary", fontSize: 12 }}>
+                          Stop Losses
+                        </Typography>
+                        <Typography variant="h4" sx={{ fontWeight: 700, color: "#ef4444" }}>
+                          {analysis.slAnalysis.count}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </CardContent>
+                </Card>
+
+                {/* Issues Analysis */}
+                <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, color: "text.primary" }}>
+                  📋 Issues & Patterns
+                </Typography>
+
+                {/* 1. Mismatched Instruments */}
+                <Card sx={{ mb: 2, bgcolor: "rgba(245, 158, 11, 0.05)", border: "1px solid rgba(245, 158, 11, 0.2)" }}>
+                  <CardContent>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 700, color: "#fbbf24" }}>
+                        ⚠️ Mismatched Instruments
+                      </Typography>
+                      <Chip 
+                        label={analysis.mismatchedInstruments.count} 
+                        size="small"
+                        sx={{ bgcolor: "#fbbf24", color: "white", fontWeight: 700 }}
+                      />
+                    </Box>
+                    {analysis.mismatchedInstruments.count > 0 ? (
+                      <>
+                        <Typography variant="body2" sx={{ color: "text.secondary", mb: 1, fontSize: 12 }}>
+                          Most Common Reason:
+                        </Typography>
+                        {analysis.mismatchedInstruments.mostCommonReason ? (
+                          <Box sx={{ 
+                            bgcolor: "rgba(245, 158, 11, 0.1)", 
+                            p: 1.5, 
+                            borderRadius: 1,
+                            border: "1px solid rgba(245, 158, 11, 0.2)"
+                          }}>
+                            <Typography variant="body2" sx={{ color: "text.primary", fontSize: 13, mb: 0.5 }}>
+                              {analysis.mismatchedInstruments.mostCommonReason.reason}
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: "#fbbf24", fontSize: 11, fontWeight: 500 }}>
+                              Occurred {analysis.mismatchedInstruments.mostCommonReason.count} time{analysis.mismatchedInstruments.mostCommonReason.count > 1 ? 's' : ''}
+                            </Typography>
+                          </Box>
+                        ) : (
+                          <Typography variant="body2" sx={{ color: "text.secondary", fontStyle: "italic" }}>
+                            No reason recorded
+                          </Typography>
+                        )}
+                      </>
+                    ) : (
+                      <Typography variant="body2" sx={{ color: "text.secondary", fontStyle: "italic" }}>
+                        ✅ Great! No mismatched instruments this {feedbackView === "weekly" ? "week" : "month"}.
+                      </Typography>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* 2. Risk Mismatches */}
+                <Card sx={{ mb: 2, bgcolor: "rgba(59, 130, 246, 0.05)", border: "1px solid rgba(59, 130, 246, 0.2)" }}>
+                  <CardContent>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 700, color: "#60a5fa" }}>
+                        💰 Risk Amount Mismatches
+                      </Typography>
+                      <Chip 
+                        label={analysis.riskMismatches.count} 
+                        size="small"
+                        sx={{ bgcolor: "#60a5fa", color: "white", fontWeight: 700 }}
+                      />
+                    </Box>
+                    {analysis.riskMismatches.count > 0 ? (
+                      <>
+                        <Typography variant="body2" sx={{ color: "text.secondary", mb: 1, fontSize: 12 }}>
+                          Most Common Reason:
+                        </Typography>
+                        {analysis.riskMismatches.mostCommonReason ? (
+                          <Box sx={{ 
+                            bgcolor: "rgba(59, 130, 246, 0.1)", 
+                            p: 1.5, 
+                            borderRadius: 1,
+                            border: "1px solid rgba(59, 130, 246, 0.2)"
+                          }}>
+                            <Typography variant="body2" sx={{ color: "text.primary", fontSize: 13, mb: 0.5 }}>
+                              {analysis.riskMismatches.mostCommonReason.reason}
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: "#60a5fa", fontSize: 11, fontWeight: 500 }}>
+                              Occurred {analysis.riskMismatches.mostCommonReason.count} time{analysis.riskMismatches.mostCommonReason.count > 1 ? 's' : ''}
+                            </Typography>
+                          </Box>
+                        ) : (
+                          <Typography variant="body2" sx={{ color: "text.secondary", fontStyle: "italic" }}>
+                            No reason recorded
+                          </Typography>
+                        )}
+                      </>
+                    ) : (
+                      <Typography variant="body2" sx={{ color: "text.secondary", fontStyle: "italic" }}>
+                        ✅ Perfect! All trades matched expected risk this {feedbackView === "weekly" ? "week" : "month"}.
+                      </Typography>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* 3. Over Risked */}
+                <Card sx={{ mb: 2, bgcolor: "rgba(239, 68, 68, 0.05)", border: "1px solid rgba(239, 68, 68, 0.2)" }}>
+                  <CardContent>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 700, color: "#ef4444" }}>
+                        🚨 Over Risked Trades
+                      </Typography>
+                      <Chip 
+                        label={analysis.overRisked.count} 
+                        size="small"
+                        sx={{ bgcolor: "#ef4444", color: "white", fontWeight: 700 }}
+                      />
+                    </Box>
+                    {analysis.overRisked.count > 0 ? (
+                      <>
+                        <Typography variant="body2" sx={{ color: "text.secondary", mb: 1, fontSize: 12 }}>
+                          Most Common Reason:
+                        </Typography>
+                        {analysis.overRisked.mostCommonReason ? (
+                          <Box sx={{ 
+                            bgcolor: "rgba(239, 68, 68, 0.1)", 
+                            p: 1.5, 
+                            borderRadius: 1,
+                            border: "1px solid rgba(239, 68, 68, 0.2)"
+                          }}>
+                            <Typography variant="body2" sx={{ color: "text.primary", fontSize: 13, mb: 0.5 }}>
+                              {analysis.overRisked.mostCommonReason.reason}
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: "#ef4444", fontSize: 11, fontWeight: 500 }}>
+                              Occurred {analysis.overRisked.mostCommonReason.count} time{analysis.overRisked.mostCommonReason.count > 1 ? 's' : ''}
+                            </Typography>
+                          </Box>
+                        ) : (
+                          <Typography variant="body2" sx={{ color: "text.secondary", fontStyle: "italic" }}>
+                            No reason recorded
+                          </Typography>
+                        )}
+                      </>
+                    ) : (
+                      <Typography variant="body2" sx={{ color: "text.secondary", fontStyle: "italic" }}>
+                        ✅ Excellent! No over-risked trades this {feedbackView === "weekly" ? "week" : "month"}.
+                      </Typography>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* 4. Early Exits */}
+                <Card sx={{ mb: 2, bgcolor: "rgba(245, 158, 11, 0.05)", border: "1px solid rgba(245, 158, 11, 0.2)" }}>
+                  <CardContent>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 700, color: "#fbbf24" }}>
+                        ⏱️ Early Exit Trades
+                      </Typography>
+                      <Chip 
+                        label={analysis.earlyExits.count} 
+                        size="small"
+                        sx={{ bgcolor: "#fbbf24", color: "white", fontWeight: 700 }}
+                      />
+                    </Box>
+                    {analysis.earlyExits.count > 0 ? (
+                      <>
+                        <Typography variant="body2" sx={{ color: "text.secondary", mb: 1, fontSize: 12 }}>
+                          Most Common Reason:
+                        </Typography>
+                        {analysis.earlyExits.mostCommonReason ? (
+                          <Box sx={{ 
+                            bgcolor: "rgba(245, 158, 11, 0.1)", 
+                            p: 1.5, 
+                            borderRadius: 1,
+                            border: "1px solid rgba(245, 158, 11, 0.2)"
+                          }}>
+                            <Typography variant="body2" sx={{ color: "text.primary", fontSize: 13, mb: 0.5 }}>
+                              {analysis.earlyExits.mostCommonReason.reason}
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: "#fbbf24", fontSize: 11, fontWeight: 500 }}>
+                              Occurred {analysis.earlyExits.mostCommonReason.count} time{analysis.earlyExits.mostCommonReason.count > 1 ? 's' : ''}
+                            </Typography>
+                          </Box>
+                        ) : (
+                          <Typography variant="body2" sx={{ color: "text.secondary", fontStyle: "italic" }}>
+                            No reason recorded
+                          </Typography>
+                        )}
+                      </>
+                    ) : (
+                      <Typography variant="body2" sx={{ color: "text.secondary", fontStyle: "italic" }}>
+                        ✅ Good! No early exits this {feedbackView === "weekly" ? "week" : "month"}.
+                      </Typography>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Divider sx={{ my: 3 }} />
+
+                {/* TP/SL Feedback Analysis */}
+                <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, color: "text.primary" }}>
+                  📈 Trade Outcomes Analysis
+                </Typography>
+
+                {/* Take Profit Feedback */}
+                <Card sx={{ mb: 2, bgcolor: "rgba(16, 185, 129, 0.05)", border: "1px solid rgba(16, 185, 129, 0.2)" }}>
+                  <CardContent>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 700, color: "#10b981" }}>
+                        ✅ Take Profit Trades ({analysis.tpAnalysis.count})
+                      </Typography>
+                    </Box>
+                    {analysis.tpAnalysis.mostCommonFeedback ? (
+                      <>
+                        <Typography variant="body2" sx={{ color: "text.secondary", mb: 1, fontSize: 12 }}>
+                          Most Common Feedback:
+                        </Typography>
+                        <Box sx={{ 
+                          bgcolor: "rgba(16, 185, 129, 0.1)", 
+                          p: 1.5, 
+                          borderRadius: 1,
+                          border: "1px solid rgba(16, 185, 129, 0.2)"
+                        }}>
+                          <Typography variant="body2" sx={{ color: "text.primary", fontSize: 13, mb: 0.5 }}>
+                            {analysis.tpAnalysis.mostCommonFeedback.reason}
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: "#10b981", fontSize: 11, fontWeight: 500 }}>
+                            Occurred {analysis.tpAnalysis.mostCommonFeedback.count} time{analysis.tpAnalysis.mostCommonFeedback.count > 1 ? 's' : ''}
+                          </Typography>
+                        </Box>
+                      </>
+                    ) : (
+                      <Typography variant="body2" sx={{ color: "text.secondary", fontStyle: "italic", fontSize: 12 }}>
+                        No feedback recorded for TP trades yet.
+                      </Typography>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Stop Loss Feedback */}
+                <Card sx={{ mb: 2, bgcolor: "rgba(239, 68, 68, 0.05)", border: "1px solid rgba(239, 68, 68, 0.2)" }}>
+                  <CardContent>
+                    <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 700, color: "#ef4444" }}>
+                        ❌ Stop Loss Trades ({analysis.slAnalysis.count})
+                      </Typography>
+                    </Box>
+                    {analysis.slAnalysis.mostCommonFeedback ? (
+                      <>
+                        <Typography variant="body2" sx={{ color: "text.secondary", mb: 1, fontSize: 12 }}>
+                          Most Common Feedback:
+                        </Typography>
+                        <Box sx={{ 
+                          bgcolor: "rgba(239, 68, 68, 0.1)", 
+                          p: 1.5, 
+                          borderRadius: 1,
+                          border: "1px solid rgba(239, 68, 68, 0.2)"
+                        }}>
+                          <Typography variant="body2" sx={{ color: "text.primary", fontSize: 13, mb: 0.5 }}>
+                            {analysis.slAnalysis.mostCommonFeedback.reason}
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: "#ef4444", fontSize: 11, fontWeight: 500 }}>
+                            Occurred {analysis.slAnalysis.mostCommonFeedback.count} time{analysis.slAnalysis.mostCommonFeedback.count > 1 ? 's' : ''}
+                          </Typography>
+                        </Box>
+                      </>
+                    ) : (
+                      <Typography variant="body2" sx={{ color: "text.secondary", fontStyle: "italic", fontSize: 12 }}>
+                        No feedback recorded for SL trades yet.
+                      </Typography>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Win Rate */}
+                {(analysis.tpAnalysis.count + analysis.slAnalysis.count) > 0 && (
+                  <Card sx={{ 
+                    mt: 3,
+                    background: "#fafafa",
+                    border: "1px solid #e5e7eb",
+                  }}>
+                    <CardContent>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 2, color: "#1f2937", fontSize: 15 }}>
+                        Win Rate
+                      </Typography>
+                      <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
+                        <Typography variant="h3" sx={{ fontWeight: 700, color: "#7f1d1d" }}>
+                          {((analysis.tpAnalysis.count / (analysis.tpAnalysis.count + analysis.slAnalysis.count)) * 100).toFixed(1)}%
+                        </Typography>
+                        <Box>
+                          <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                            {analysis.tpAnalysis.count} wins out of {analysis.tpAnalysis.count + analysis.slAnalysis.count} closed trades
+                          </Typography>
+                        </Box>
+                      </Box>
+                    </CardContent>
+                  </Card>
+                )}
+              </Box>
+            );
+          })()}
+        </DialogContent>
+        <DialogActions sx={{ p: 2, borderTop: "1px solid rgba(99, 102, 241, 0.2)" }}>
+          <Button onClick={() => setFeedbackDialogOpen(false)} variant="contained" color="primary">
+            Close
           </Button>
         </DialogActions>
       </Dialog>
