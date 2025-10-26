@@ -27,6 +27,7 @@ import PerformanceCharts from "./PerformanceCharts";
 import WinRateGraphs from "./WinRateGraphs";
 import InstrumentAnalysis from "./InstrumentAnalysis";
 import AchievementsPage from "./AchievementsPage";
+import TradingInsights from "./TradingInsights";
 
 // Helper: safe local file name for Electron
 function localFileName(key) {
@@ -48,7 +49,7 @@ export default function AccountPage({ accountKey, columns }) {
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const [feedbackView, setFeedbackView] = useState("weekly"); // "weekly" or "monthly"
   const [analyticsDialogOpen, setAnalyticsDialogOpen] = useState(false);
-  const [analyticsTab, setAnalyticsTab] = useState(0); // 0 = Performance, 1 = Win Rate, 2 = Instruments
+  const [analyticsTab, setAnalyticsTab] = useState(0); // 0 = Performance, 1 = Win Rate, 2 = Instruments, 3 = Insights
   const [achievementsDialogOpen, setAchievementsDialogOpen] = useState(false);
 
   // Create one blank row template with auto-filled date
@@ -2392,6 +2393,7 @@ export default function AccountPage({ accountKey, columns }) {
             <Tab label="📈 Performance Trends" />
             <Tab label="🎯 Win Rate Analysis" />
             <Tab label="💹 Instrument Performance" />
+            <Tab label="🧠 AI Insights" />
           </Tabs>
 
           <Box sx={{ p: 3 }}>
@@ -2419,6 +2421,15 @@ export default function AccountPage({ accountKey, columns }) {
                   Discover which instruments are most profitable and which ones need improvement.
                 </Typography>
                 <InstrumentAnalysis rows={rows} />
+              </Box>
+            )}
+            
+            {analyticsTab === 3 && (
+              <Box>
+                <Typography variant="body2" sx={{ color: "text.secondary", mb: 2 }}>
+                  AI-powered pattern recognition identifies recurring mistakes and provides personalized trading suggestions.
+                </Typography>
+                <TradingInsights rows={rows} />
               </Box>
             )}
           </Box>
