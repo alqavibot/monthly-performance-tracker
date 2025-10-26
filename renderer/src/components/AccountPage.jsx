@@ -59,6 +59,12 @@ export default function AccountPage({ accountKey, columns }) {
   const [analyticsTab, setAnalyticsTab] = useState(0); // 0 = Performance, 1 = Win Rate, 2 = Instruments, 3 = Insights, 4 = Historical
   const [achievementsDialogOpen, setAchievementsDialogOpen] = useState(false);
   const [dashboardDialogOpen, setDashboardDialogOpen] = useState(false);
+  
+  // 📅 Monthly Rotation State
+  const [currentMonthKey, setCurrentMonthKey] = useState(""); // e.g., "2025-10"
+  const [previousMonthData, setPreviousMonthData] = useState(null); // Previous month's raw trades
+  const [monthlySummaries, setMonthlySummaries] = useState({}); // Archived summaries { "2025-09": {...}, "2025-08": {...} }
+  const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
 
   // Create one blank row template with auto-filled date
   function emptyRow() {
@@ -119,6 +125,122 @@ export default function AccountPage({ accountKey, columns }) {
     });
 
     return { tpCount, slCount, total: tpCount + slCount };
+  }
+
+  // 📅 MONTHLY ROTATION HELPER FUNCTIONS
+  
+  // Get current month key (e.g., "2025-10")
+  function getMonthKey(date = new Date()) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    return `${year}-${month}`;
+  }
+
+  // Generate comprehensive monthly summary from trade data
+  function generateMonthlySummary(trades, monthKey, riskAmount) {
+    if (!trades || trades.length === 0) {
+      return {
+        monthKey,
+        totalTrades: 0,
+        wins: 0,
+        losses: 0,
+        winRate: 0,
+        totalProfit: 0,
+        avgRR: 0,
+        bestTrade: 0,
+        worstTrade: 0,
+        expectedRisk: riskAmount,
+        createdAt: new Date().toISOString()
+      };
+    }
+
+    let wins = 0;
+    let losses = 0;
+    let totalProfit = 0;
+    let totalRR = 0;
+    let rrCount = 0;
+    let bestTrade = -Infinity;
+    let worstTrade = Infinity;
+
+    trades.forEach(row => {
+      const plValue = parseFloat(row["P/L"]);
+      if (!isNaN(plValue)) {
+        totalProfit += plValue;
+        if (plValue > 0) {
+          wins++;
+          bestTrade = Math.max(bestTrade, plValue);
+        } else if (plValue < 0) {
+          losses++;
+          worstTrade = Math.min(worstTrade, plValue);
+        }
+      }
+
+      const rrValue = parseFloat(row["RR"]);
+      if (!isNaN(rrValue)) {
+        totalRR += rrValue;
+        rrCount++;
+      }
+    });
+
+    const total = wins + losses;
+    const winRate = total > 0 ? ((wins / total) * 100).toFixed(1) : 0;
+    const avgRR = rrCount > 0 ? (totalRR / rrCount).toFixed(2) : 0;
+
+    return {
+      monthKey,
+      totalTrades: trades.length,
+      wins,
+      losses,
+      winRate: parseFloat(winRate),
+      totalProfit: parseFloat(totalProfit.toFixed(2)),
+      avgRR: parseFloat(avgRR),
+      bestTrade: bestTrade === -Infinity ? 0 : bestTrade,
+      worstTrade: worstTrade === Infinity ? 0 : worstTrade,
+      expectedRisk: riskAmount,
+      createdAt: new Date().toISOString()
+    };
+  }
+
+  // Perform monthly rotation
+  function performMonthRotation(accountData) {
+    console.log("🔄 Performing monthly rotation...");
+    
+    const newMonthKey = getMonthKey();
+    
+    // Step 1: If there's a "previous month", archive it
+    if (accountData.previousMonthData && accountData.previousMonthData.trades.length > 0) {
+      const summary = generateMonthlySummary(
+        accountData.previousMonthData.trades,
+        accountData.previousMonthData.monthKey,
+        accountData.previousMonthData.expectedRisk
+      );
+      
+      console.log(`📦 Archiving ${accountData.previousMonthData.monthKey}:`, summary);
+      
+      // Add to summaries
+      accountData.monthlySummaries[accountData.previousMonthData.monthKey] = summary;
+    }
+    
+    // Step 2: Move current → previous
+    if (accountData.currentMonthKey && accountData.rows.length > 0) {
+      accountData.previousMonthData = {
+        monthKey: accountData.currentMonthKey,
+        trades: [...accountData.rows],
+        expectedRisk: accountData.expectedRisk
+      };
+      console.log(`📋 Moved current month (${accountData.currentMonthKey}) to previous`);
+    } else {
+      accountData.previousMonthData = null;
+    }
+    
+    // Step 3: Start fresh current month
+    accountData.currentMonthKey = newMonthKey;
+    accountData.rows = [emptyRow()];
+    
+    console.log(`✨ Started new month: ${newMonthKey}`);
+    console.log(`📊 Total archived months: ${Object.keys(accountData.monthlySummaries).length}`);
+    
+    return accountData;
   }
 
   // Parse date from "DATE/DAY" field (format: "26 Oct - Sunday")
@@ -366,22 +488,15 @@ export default function AccountPage({ accountKey, columns }) {
       const key = accountKey;
       console.log("Loading account:", key);
       
+      let accountData = null;
+      
       // 1️⃣ Try local storage first (Electron or Browser)
       if (hasElectron) {
         const raw = window.electronAPI.readLocalFile(localFileName(key));
         if (raw) {
           const parsed = JSON.parse(raw);
           console.log("Loaded from local cache:", parsed);
-          if (Array.isArray(parsed)) {
-            // Old format: just rows array
-            setRows(parsed);
-          } else {
-            // New format: object with rows and expectedRisk
-            setRows(parsed.rows || []);
-            setExpectedRisk(parsed.expectedRisk || "");
-          }
-          setLoaded(true);
-          return;
+          accountData = parsed;
         }
       } else {
         // Try browser localStorage
@@ -389,39 +504,80 @@ export default function AccountPage({ accountKey, columns }) {
         if (stored) {
           const parsed = JSON.parse(stored);
           console.log("Loaded from browser storage:", parsed);
-          if (Array.isArray(parsed)) {
-            // Old format: just rows array
-            setRows(parsed);
-          } else {
-            // New format: object with rows and expectedRisk
-            setRows(parsed.rows || []);
-            setExpectedRisk(parsed.expectedRisk || "");
-          }
-          setLoaded(true);
-          return;
+          accountData = parsed;
         }
       }
 
       // 2️⃣ Try Firebase (only if no local data)
-      try {
-        const ref = doc(db, "accounts", encodeURIComponent(key));
-        const snap = await getDoc(ref);
-        if (snap.exists()) {
-          const data = snap.data();
-          const loadedRows = data.rows && data.rows.length > 0 ? data.rows : [emptyRow()];
-          console.log("Loaded from Firebase:", loadedRows);
-          setRows(loadedRows);
-          setExpectedRisk(data.expectedRisk || "");
-        } else {
-          console.log("No existing data, creating empty row");
-          setRows([emptyRow()]);
-          setExpectedRisk("");
+      if (!accountData) {
+        try {
+          const ref = doc(db, "accounts", encodeURIComponent(key));
+          const snap = await getDoc(ref);
+          if (snap.exists()) {
+            accountData = snap.data();
+            console.log("Loaded from Firebase:", accountData);
+          }
+        } catch (err) {
+          console.warn("Firebase load failed (using local-only mode):", err.message);
         }
-      } catch (err) {
-        console.warn("Firebase load failed (using local-only mode):", err.message);
+      }
+
+      // 3️⃣ Process loaded data
+      if (!accountData) {
+        // No data found - start fresh
+        console.log("No existing data, starting fresh");
+        const newMonthKey = getMonthKey();
+        setCurrentMonthKey(newMonthKey);
         setRows([emptyRow()]);
         setExpectedRisk("");
+        setPreviousMonthData(null);
+        setMonthlySummaries({});
+      } else {
+        // Handle different data formats
+        if (Array.isArray(accountData)) {
+          // Old format: just rows array - migrate to new structure
+          console.log("Migrating old format to new structure");
+          const newMonthKey = getMonthKey();
+          setCurrentMonthKey(newMonthKey);
+          setRows(accountData);
+          setExpectedRisk("");
+          setPreviousMonthData(null);
+          setMonthlySummaries({});
+        } else if (accountData.rows && !accountData.currentMonthKey) {
+          // Intermediate format: has rows and expectedRisk but no month tracking
+          console.log("Migrating intermediate format to monthly tracking");
+          const newMonthKey = getMonthKey();
+          setCurrentMonthKey(newMonthKey);
+          setRows(accountData.rows || [emptyRow()]);
+          setExpectedRisk(accountData.expectedRisk || "");
+          setPreviousMonthData(null);
+          setMonthlySummaries({});
+        } else {
+          // New format with monthly tracking
+          console.log("Loading full monthly tracking data");
+          const newMonthKey = getMonthKey();
+          
+          // Check if month changed - perform rotation if needed
+          if (accountData.currentMonthKey && accountData.currentMonthKey !== newMonthKey) {
+            console.log(`🔄 Month changed from ${accountData.currentMonthKey} to ${newMonthKey}`);
+            accountData = performMonthRotation({
+              currentMonthKey: accountData.currentMonthKey,
+              rows: accountData.rows || [],
+              expectedRisk: accountData.expectedRisk || "",
+              previousMonthData: accountData.previousMonthData || null,
+              monthlySummaries: accountData.monthlySummaries || {}
+            });
+          }
+          
+          // Set state
+          setCurrentMonthKey(accountData.currentMonthKey || newMonthKey);
+          setRows(accountData.rows || [emptyRow()]);
+          setExpectedRisk(accountData.expectedRisk || "");
+          setPreviousMonthData(accountData.previousMonthData || null);
+          setMonthlySummaries(accountData.monthlySummaries || {});
+        }
       }
+      
       setLoaded(true);
     }
     load();
@@ -434,8 +590,11 @@ export default function AccountPage({ accountKey, columns }) {
     const timer = setTimeout(() => {
     const key = accountKey;
       const dataToSave = {
+        currentMonthKey,
         rows,
-        expectedRisk
+        expectedRisk,
+        previousMonthData,
+        monthlySummaries
       };
       
       // Save locally ONLY (if Electron)
@@ -461,7 +620,7 @@ export default function AccountPage({ accountKey, columns }) {
     }, 500); // Fast local save
 
     return () => clearTimeout(timer);
-  }, [rows, expectedRisk, loaded, accountKey]);
+  }, [rows, expectedRisk, currentMonthKey, previousMonthData, monthlySummaries, loaded, accountKey]);
 
   // Check if instrument matches account name (supports multiple instruments)
   const checkInstrumentMatch = (instrument) => {
@@ -649,11 +808,19 @@ export default function AccountPage({ accountKey, columns }) {
     const updatedRows = [...rows, newRow];
     setRows(updatedRows);
     
-    // Immediately sync new row to cloud
+    // Immediately sync new row to cloud with full monthly data
     const key = accountKey;
     console.log("Adding new row, syncing to cloud...");
     
-    setDoc(doc(db, "accounts", encodeURIComponent(key)), { rows: updatedRows, expectedRisk }, { merge: true })
+    const dataToSave = {
+      currentMonthKey,
+      rows: updatedRows,
+      expectedRisk,
+      previousMonthData,
+      monthlySummaries
+    };
+    
+    setDoc(doc(db, "accounts", encodeURIComponent(key)), dataToSave, { merge: true })
       .then(() => {
         console.log("✓ New row synced to cloud");
       })
@@ -666,11 +833,19 @@ export default function AccountPage({ accountKey, columns }) {
     const updatedRows = rows.filter((r) => r._id !== id);
     setRows(updatedRows);
     
-    // Immediately sync deletion to cloud
+    // Immediately sync deletion to cloud with full monthly data
     const key = accountKey;
     console.log("Deleting row, syncing to cloud...");
     
-    setDoc(doc(db, "accounts", encodeURIComponent(key)), { rows: updatedRows, expectedRisk }, { merge: true })
+    const dataToSave = {
+      currentMonthKey,
+      rows: updatedRows,
+      expectedRisk,
+      previousMonthData,
+      monthlySummaries
+    };
+    
+    setDoc(doc(db, "accounts", encodeURIComponent(key)), dataToSave, { merge: true })
       .then(() => {
         console.log("✓ Deletion synced to cloud");
       })
@@ -734,63 +909,72 @@ export default function AccountPage({ accountKey, columns }) {
               {accountKey.split("/")[0]} • {rows.length} {rows.length === 1 ? "trade" : "trades"}
       </Typography>
           </Box>
-          <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
-            <TextField
-              label="Expected Risk"
-              value={expectedRisk}
-              onChange={(e) => setExpectedRisk(e.target.value)}
-              variant="outlined"
-              size="small"
-              placeholder="e.g., 100"
-              sx={{
-                width: 130,
-                "& .MuiInputBase-root": {
-                  backgroundColor: mode === "dark" ? "#1e293b" : "#ffffff",
-                  height: "36px",
-                },
-                "& .MuiInputBase-input": {
-                  color: mode === "dark" ? "#f87171" : "#7f1d1d",
-                  fontWeight: 500,
+          {/* Two Row Layout for Buttons */}
+          <Stack spacing={1.5}>
+            {/* Row 1: Primary Actions */}
+            <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
+              <TextField
+                label="Expected Risk"
+                value={expectedRisk}
+                onChange={(e) => setExpectedRisk(e.target.value)}
+                variant="outlined"
+                size="small"
+                placeholder="e.g., 100"
+                sx={{
+                  width: 130,
+                  "& .MuiInputBase-root": {
+                    backgroundColor: mode === "dark" ? "#1e293b" : "#ffffff",
+                    height: "36px",
+                  },
+                  "& .MuiInputBase-input": {
+                    color: mode === "dark" ? "#f87171" : "#7f1d1d",
+                    fontWeight: 500,
+                    fontSize: 12,
+                  },
+                  "& .MuiInputLabel-root": {
+                    color: "#6b7280",
+                    fontSize: 11,
+                  },
+                  "& fieldset": { 
+                    borderColor: "#d1d5db",
+                  },
+                  "&:hover fieldset": {
+                    borderColor: "#7f1d1d",
+                  },
+                  "& .Mui-focused fieldset": {
+                    borderColor: "#7f1d1d",
+                  },
+                }}
+              />
+              <Button
+                variant="contained"
+                color="primary"
+                onClick={addRow}
+                sx={{
+                  px: 2,
+                  py: 0.75,
                   fontSize: 12,
-                },
-                "& .MuiInputLabel-root": {
-                  color: "#6b7280",
-                  fontSize: 11,
-                },
-                "& fieldset": { 
-                  borderColor: "#d1d5db",
-                },
-                "&:hover fieldset": {
-                  borderColor: "#7f1d1d",
-                },
-                "& .Mui-focused fieldset": {
-                  borderColor: "#7f1d1d",
-                },
-              }}
-            />
-            <Button
-              variant="contained"
-              color="primary"
-              onClick={addRow}
-              sx={{
-                px: 2,
-                py: 0.75,
-                fontSize: 12,
-                fontWeight: 500,
-                minWidth: "auto",
-              }}
-            >
-          + Add Trade
-        </Button>
+                  fontWeight: 500,
+                  minWidth: "auto",
+                }}
+              >
+            + Add Trade
+          </Button>
         <Button
           variant="contained"
           color="primary"
           onClick={() => {
-                // Save to Firebase Cloud
+                // Save to Firebase Cloud with full monthly data
                 const key = accountKey;
                 setSaving(true);
                 console.log("Manual cloud save - Rows:", rows);
-                const dataToSave = { rows, expectedRisk };
+                const dataToSave = {
+                  currentMonthKey,
+                  rows,
+                  expectedRisk,
+                  previousMonthData,
+                  monthlySummaries
+                };
                 
                 setDoc(doc(db, "accounts", encodeURIComponent(key)), dataToSave, { merge: true })
                   .then(() => {
@@ -901,87 +1085,111 @@ export default function AccountPage({ accountKey, columns }) {
             >
               Excel
             </Button>
-            <Button
-              variant="outlined"
-              onClick={() => setFeedbackDialogOpen(true)}
-              sx={{
-                px: 2,
-                py: 0.75,
-                fontSize: 12,
-                fontWeight: 500,
-                minWidth: "auto",
-              }}
-            >
-              Report
-            </Button>
-            <Button
-              variant="contained"
-              onClick={() => setDashboardDialogOpen(true)}
-              sx={{
-                px: 2,
-                py: 0.75,
-                fontSize: 12,
-                fontWeight: 500,
-                minWidth: "auto",
-                bgcolor: "#8b5cf6",
-                "&:hover": {
-                  bgcolor: "#7c3aed",
-                },
-              }}
-            >
-              📊 Dashboard
-            </Button>
-            <Button
-              variant="contained"
-              onClick={() => setAnalyticsDialogOpen(true)}
-              sx={{
-                px: 2,
-                py: 0.75,
-                fontSize: 12,
-                fontWeight: 500,
-                minWidth: "auto",
-                bgcolor: "#6366f1",
-                "&:hover": {
-                  bgcolor: "#4f46e5",
-                },
-              }}
-            >
-              📊 Analytics
-            </Button>
-            <Button
-              variant="contained"
-              onClick={() => setAchievementsDialogOpen(true)}
-              sx={{
-                px: 2,
-                py: 0.75,
-                fontSize: 12,
-                fontWeight: 500,
-                minWidth: "auto",
-                bgcolor: "#fbbf24",
-                color: "#78350f",
-                "&:hover": {
-                  bgcolor: "#f59e0b",
-                },
-              }}
-            >
-              🏆 Achievements
-            </Button>
-            <Tooltip title={mode === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode"}>
-              <IconButton
-                onClick={toggleTheme}
+            </Stack>
+
+            {/* Row 2: Analytics & Tools */}
+            <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
+              <Button
+                variant="outlined"
+                onClick={() => setFeedbackDialogOpen(true)}
                 sx={{
-                  color: mode === "dark" ? "#fbbf24" : "#1f2937",
-                  border: "1px solid",
-                  borderColor: mode === "dark" ? "#fbbf24" : "#d1d5db",
-                  "&:hover": {
-                    bgcolor: mode === "dark" ? "rgba(251, 191, 36, 0.1)" : "rgba(31, 41, 55, 0.05)",
-                  }
+                  px: 2,
+                  py: 0.75,
+                  fontSize: 12,
+                  fontWeight: 500,
+                  minWidth: "auto",
                 }}
-                size="small"
               >
-                {mode === "dark" ? <Brightness7Icon /> : <Brightness4Icon />}
-              </IconButton>
-            </Tooltip>
+                Report
+              </Button>
+              <Button
+                variant="outlined"
+                onClick={() => setArchiveDialogOpen(true)}
+                sx={{
+                  px: 2,
+                  py: 0.75,
+                  fontSize: 12,
+                  fontWeight: 500,
+                  minWidth: "auto",
+                  borderColor: "#7f1d1d",
+                  color: "#7f1d1d",
+                  "&:hover": {
+                    borderColor: "#7f1d1d",
+                    bgcolor: "rgba(127, 29, 29, 0.05)",
+                  },
+                }}
+              >
+                📅 Archive
+              </Button>
+              <Button
+                variant="contained"
+                onClick={() => setDashboardDialogOpen(true)}
+                sx={{
+                  px: 2,
+                  py: 0.75,
+                  fontSize: 12,
+                  fontWeight: 500,
+                  minWidth: "auto",
+                  bgcolor: "#8b5cf6",
+                  "&:hover": {
+                    bgcolor: "#7c3aed",
+                  },
+                }}
+              >
+                📊 Dashboard
+              </Button>
+              <Button
+                variant="contained"
+                onClick={() => setAnalyticsDialogOpen(true)}
+                sx={{
+                  px: 2,
+                  py: 0.75,
+                  fontSize: 12,
+                  fontWeight: 500,
+                  minWidth: "auto",
+                  bgcolor: "#6366f1",
+                  "&:hover": {
+                    bgcolor: "#4f46e5",
+                  },
+                }}
+              >
+                📊 Analytics
+              </Button>
+              <Button
+                variant="contained"
+                onClick={() => setAchievementsDialogOpen(true)}
+                sx={{
+                  px: 2,
+                  py: 0.75,
+                  fontSize: 12,
+                  fontWeight: 500,
+                  minWidth: "auto",
+                  bgcolor: "#fbbf24",
+                  color: "#78350f",
+                  "&:hover": {
+                    bgcolor: "#f59e0b",
+                  },
+                }}
+              >
+                🏆 Achievements
+              </Button>
+              <Tooltip title={mode === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode"}>
+                <IconButton
+                  onClick={toggleTheme}
+                  sx={{
+                    color: mode === "dark" ? "#fbbf24" : "#1f2937",
+                    border: "1px solid",
+                    borderColor: mode === "dark" ? "#fbbf24" : "#d1d5db",
+                    "&:hover": {
+                      bgcolor: mode === "dark" ? "rgba(251, 191, 36, 0.1)" : "rgba(31, 41, 55, 0.05)",
+                    }
+                  }}
+                  size="small"
+                >
+                  {mode === "dark" ? <Brightness7Icon /> : <Brightness4Icon />}
+                </IconButton>
+              </Tooltip>
+            </Stack>
           </Stack>
         </Stack>
       </Box>
@@ -2629,6 +2837,221 @@ export default function AccountPage({ accountKey, columns }) {
               bgcolor: "#8b5cf6",
               "&:hover": {
                 bgcolor: "#7c3aed",
+              },
+            }}
+          >
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Monthly Archive Dialog */}
+      <Dialog
+        open={archiveDialogOpen}
+        onClose={() => setArchiveDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{
+          sx: {
+            bgcolor: "background.paper",
+            borderRadius: 3,
+            maxHeight: "90vh",
+          }
+        }}
+      >
+        <DialogTitle sx={{ 
+          fontWeight: 600, 
+          fontSize: 18,
+          background: "linear-gradient(135deg, #7f1d1d 0%, #991b1b 100%)",
+          color: "white",
+          borderBottom: "1px solid rgba(127, 29, 29, 0.2)",
+        }}>
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              📅 Monthly Archive
+              <Chip 
+                label={accountKey.split("/")[1]} 
+                size="small" 
+                sx={{ 
+                  bgcolor: "rgba(255, 255, 255, 0.2)", 
+                  color: "white",
+                  fontWeight: 500,
+                  fontSize: 11,
+                  border: "1px solid rgba(255, 255, 255, 0.3)",
+                }} 
+              />
+            </Box>
+            <Typography variant="caption" sx={{ color: "rgba(255, 255, 255, 0.8)" }}>
+              Historical Performance
+            </Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ p: 3, bgcolor: "background.default" }}>
+          <Stack spacing={3}>
+            {/* Current Month Section */}
+            <Box>
+              <Typography variant="h6" sx={{ fontWeight: 600, color: "#7f1d1d", mb: 2 }}>
+                📊 Current Month ({currentMonthKey})
+              </Typography>
+              <Card sx={{ bgcolor: "background.paper", border: "1px solid", borderColor: "divider" }}>
+                <CardContent>
+                  <Stack spacing={1.5}>
+                    <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                      <Typography variant="body2" color="text.secondary">Total Trades</Typography>
+                      <Typography variant="body1" sx={{ fontWeight: 600 }}>{rows.length}</Typography>
+                    </Box>
+                    <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                      <Typography variant="body2" color="text.secondary">Expected Risk</Typography>
+                      <Typography variant="body1" sx={{ fontWeight: 600, color: "#7f1d1d" }}>
+                        {expectedRisk || "Not Set"}
+                      </Typography>
+                    </Box>
+                    <Divider />
+                    <Typography variant="caption" color="text.secondary" sx={{ fontStyle: "italic" }}>
+                      Active trading month - data will be archived on {getMonthKey(new Date(new Date().setMonth(new Date().getMonth() + 1)))}
+                    </Typography>
+                  </Stack>
+                </CardContent>
+              </Card>
+            </Box>
+
+            {/* Previous Month Section */}
+            {previousMonthData && (
+              <Box>
+                <Typography variant="h6" sx={{ fontWeight: 600, color: "#991b1b", mb: 2 }}>
+                  📋 Previous Month ({previousMonthData.monthKey})
+                </Typography>
+                <Card sx={{ bgcolor: "background.paper", border: "1px solid", borderColor: "divider" }}>
+                  <CardContent>
+                    <Stack spacing={1.5}>
+                      <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                        <Typography variant="body2" color="text.secondary">Total Trades</Typography>
+                        <Typography variant="body1" sx={{ fontWeight: 600 }}>
+                          {previousMonthData.trades.length}
+                        </Typography>
+                      </Box>
+                      <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                        <Typography variant="body2" color="text.secondary">Expected Risk</Typography>
+                        <Typography variant="body1" sx={{ fontWeight: 600, color: "#991b1b" }}>
+                          {previousMonthData.expectedRisk || "Not Set"}
+                        </Typography>
+                      </Box>
+                      <Divider />
+                      <Typography variant="caption" color="text.secondary" sx={{ fontStyle: "italic" }}>
+                        Full trade data available - will be archived next month
+                      </Typography>
+                    </Stack>
+                  </CardContent>
+                </Card>
+              </Box>
+            )}
+
+            {/* Archived Months Section */}
+            {Object.keys(monthlySummaries).length > 0 && (
+              <Box>
+                <Typography variant="h6" sx={{ fontWeight: 600, color: "#7f1d1d", mb: 2 }}>
+                  📦 Archived Months ({Object.keys(monthlySummaries).length})
+                </Typography>
+                <Stack spacing={2}>
+                  {Object.entries(monthlySummaries)
+                    .sort(([keyA], [keyB]) => keyB.localeCompare(keyA)) // Sort newest first
+                    .map(([monthKey, summary]) => (
+                      <Card 
+                        key={monthKey} 
+                        sx={{ 
+                          bgcolor: "background.paper", 
+                          border: "1px solid", 
+                          borderColor: "divider",
+                          "&:hover": {
+                            borderColor: "#7f1d1d",
+                            boxShadow: 2,
+                          }
+                        }}
+                      >
+                        <CardContent>
+                          <Typography variant="subtitle1" sx={{ fontWeight: 600, mb: 1.5, color: "#7f1d1d" }}>
+                            {monthKey}
+                          </Typography>
+                          <Stack spacing={1}>
+                            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                              <Typography variant="body2" color="text.secondary">Total Trades</Typography>
+                              <Typography variant="body2" sx={{ fontWeight: 600 }}>{summary.totalTrades}</Typography>
+                            </Box>
+                            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                              <Typography variant="body2" color="text.secondary">Win Rate</Typography>
+                              <Typography 
+                                variant="body2" 
+                                sx={{ 
+                                  fontWeight: 600, 
+                                  color: summary.winRate >= 50 ? "#15803d" : "#991b1b" 
+                                }}
+                              >
+                                {summary.winRate}% ({summary.wins}W / {summary.losses}L)
+                              </Typography>
+                            </Box>
+                            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                              <Typography variant="body2" color="text.secondary">Total Profit</Typography>
+                              <Typography 
+                                variant="body2" 
+                                sx={{ 
+                                  fontWeight: 600, 
+                                  color: summary.totalProfit >= 0 ? "#15803d" : "#991b1b" 
+                                }}
+                              >
+                                {summary.totalProfit >= 0 ? "+" : ""}{summary.totalProfit}
+                              </Typography>
+                            </Box>
+                            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                              <Typography variant="body2" color="text.secondary">Avg RR</Typography>
+                              <Typography variant="body2" sx={{ fontWeight: 600 }}>{summary.avgRR}</Typography>
+                            </Box>
+                            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                              <Typography variant="body2" color="text.secondary">Best Trade</Typography>
+                              <Typography variant="body2" sx={{ fontWeight: 600, color: "#15803d" }}>
+                                +{summary.bestTrade}
+                              </Typography>
+                            </Box>
+                            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+                              <Typography variant="body2" color="text.secondary">Worst Trade</Typography>
+                              <Typography variant="body2" sx={{ fontWeight: 600, color: "#991b1b" }}>
+                                {summary.worstTrade}
+                              </Typography>
+                            </Box>
+                            <Divider sx={{ my: 1 }} />
+                            <Typography variant="caption" color="text.secondary" sx={{ fontStyle: "italic" }}>
+                              Archived on {new Date(summary.createdAt).toLocaleDateString()}
+                            </Typography>
+                          </Stack>
+                        </CardContent>
+                      </Card>
+                    ))}
+                </Stack>
+              </Box>
+            )}
+
+            {/* Empty State */}
+            {Object.keys(monthlySummaries).length === 0 && !previousMonthData && (
+              <Card sx={{ bgcolor: "background.paper", border: "1px dashed", borderColor: "divider", p: 4 }}>
+                <Stack alignItems="center" spacing={2}>
+                  <Typography variant="h6" color="text.secondary">📭 No Archived Data Yet</Typography>
+                  <Typography variant="body2" color="text.secondary" align="center">
+                    Your monthly summaries will appear here as months pass.
+                    <br />
+                    Previous month data is preserved, older months are archived as summaries.
+                  </Typography>
+                </Stack>
+              </Card>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ p: 2, borderTop: "1px solid", borderColor: "divider", bgcolor: "background.default" }}>
+          <Button 
+            onClick={() => setArchiveDialogOpen(false)} 
+            variant="contained" 
+            sx={{
+              bgcolor: "#7f1d1d",
+              "&:hover": {
+                bgcolor: "#991b1b",
               },
             }}
           >
