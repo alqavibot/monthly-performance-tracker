@@ -49,12 +49,11 @@ export default function PerformanceCharts({ rows }) {
 
   // Process data for performance over time
   const performanceData = useMemo(() => {
-    // Filter trades with calculated risk (profit/loss data)
+    // Filter trades with P/L (actual profit/loss data from user)
     const validTrades = rows.filter(row => {
-      const risk = row["CALCULATED RISK"];
-      const tpOrSl = (row["TP OR SL ?"] || "").toLowerCase().trim();
+      const plAmount = parseFloat(row["P/L"]);
       const date = parseTradeDate(row["DATE/DAY"]);
-      return risk && date && (tpOrSl.includes("tp") || tpOrSl.includes("sl"));
+      return !isNaN(plAmount) && date;
     });
 
     // Group by date
@@ -70,12 +69,9 @@ export default function PerformanceCharts({ rows }) {
       .forEach(row => {
         const date = parseTradeDate(row["DATE/DAY"]);
         const dateStr = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-        const risk = parseFloat(row["CALCULATED RISK"]) || 0;
-        const tpOrSl = (row["TP OR SL ?"] || "").toLowerCase().trim();
+        const plAmount = parseFloat(row["P/L"]) || 0;
         
-        // TP = profit, SL = loss
-        const profit = tpOrSl.includes("tp") ? risk : -risk;
-        cumulativeProfit += profit;
+        cumulativeProfit += plAmount;
 
         if (!dateMap.has(dateStr)) {
           dateMap.set(dateStr, {
@@ -88,10 +84,10 @@ export default function PerformanceCharts({ rows }) {
         }
 
         const entry = dateMap.get(dateStr);
-        if (profit > 0) {
-          entry.profit += profit;
+        if (plAmount > 0) {
+          entry.profit += plAmount;
         } else {
-          entry.loss += Math.abs(profit);
+          entry.loss += Math.abs(plAmount);
         }
         entry.cumulative = cumulativeProfit;
         entry.trades += 1;
@@ -146,7 +142,7 @@ export default function PerformanceCharts({ rows }) {
             📊 Performance Over Time
           </Typography>
           <Typography variant="body2" sx={{ color: "text.secondary", fontStyle: "italic" }}>
-            No performance data available yet. Start adding trades with calculated risk and TP/SL outcomes.
+            No performance data available yet. Start adding trades and enter P/L amounts (positive for profit, negative for loss).
           </Typography>
         </CardContent>
       </Card>

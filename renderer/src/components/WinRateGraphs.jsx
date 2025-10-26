@@ -72,13 +72,13 @@ export default function WinRateGraphs({ rows }) {
   // Calculate overall stats
   const overallStats = useMemo(() => {
     const tpTrades = rows.filter(row => {
-      const tpOrSl = (row["TP OR SL ?"] || "").toLowerCase().trim();
-      return tpOrSl.includes("tp") || tpOrSl.includes("take profit");
+      const plValue = parseFloat(row["P/L"]);
+      return !isNaN(plValue) && plValue > 0;
     });
 
     const slTrades = rows.filter(row => {
-      const tpOrSl = (row["TP OR SL ?"] || "").toLowerCase().trim();
-      return tpOrSl.includes("sl") || tpOrSl.includes("stop loss");
+      const plValue = parseFloat(row["P/L"]);
+      return !isNaN(plValue) && plValue < 0;
     });
 
     const total = tpTrades.length + slTrades.length;
@@ -96,8 +96,8 @@ export default function WinRateGraphs({ rows }) {
   const timeSeriesData = useMemo(() => {
     const validTrades = rows.filter(row => {
       const date = parseTradeDate(row["DATE/DAY"]);
-      const tpOrSl = (row["TP OR SL ?"] || "").toLowerCase().trim();
-      return date && (tpOrSl.includes("tp") || tpOrSl.includes("sl"));
+      const plValue = parseFloat(row["P/L"]);
+      return date && !isNaN(plValue);
     });
 
     if (viewMode === "weekly") {
@@ -121,11 +121,11 @@ export default function WinRateGraphs({ rows }) {
         }
 
         const entry = weekMap.get(weekKey);
-        const tpOrSl = (row["TP OR SL ?"] || "").toLowerCase().trim();
+        const plValue = parseFloat(row["P/L"]);
         
-        if (tpOrSl.includes("tp")) {
+        if (plValue > 0) {
           entry.tp += 1;
-        } else if (tpOrSl.includes("sl")) {
+        } else if (plValue < 0) {
           entry.sl += 1;
         }
         entry.total = entry.tp + entry.sl;
@@ -158,11 +158,11 @@ export default function WinRateGraphs({ rows }) {
         }
 
         const entry = monthMap.get(monthKey);
-        const tpOrSl = (row["TP OR SL ?"] || "").toLowerCase().trim();
+        const plValue = parseFloat(row["P/L"]);
         
-        if (tpOrSl.includes("tp")) {
+        if (plValue > 0) {
           entry.tp += 1;
-        } else if (tpOrSl.includes("sl")) {
+        } else if (plValue < 0) {
           entry.sl += 1;
         }
         entry.total = entry.tp + entry.sl;
@@ -217,7 +217,7 @@ export default function WinRateGraphs({ rows }) {
             📈 Win Rate Analysis
           </Typography>
           <Typography variant="body2" sx={{ color: "text.secondary", fontStyle: "italic" }}>
-            No trade outcomes recorded yet. Start marking trades as TP or SL to see win rate analysis.
+            No trade outcomes recorded yet. Enter P/L amounts (positive for wins, negative for losses) to see win rate analysis.
           </Typography>
         </CardContent>
       </Card>

@@ -97,11 +97,13 @@ export default function AccountPage({ accountKey, columns }) {
     let slCount = 0;
 
     rows.forEach(row => {
-      const tpOrSl = (row["TP OR SL ?"] || "").toLowerCase().trim();
-      if (tpOrSl.includes("tp") || tpOrSl.includes("take profit")) {
-        tpCount++;
-      } else if (tpOrSl.includes("sl") || tpOrSl.includes("stop loss")) {
-        slCount++;
+      const plValue = parseFloat(row["P/L"]);
+      if (!isNaN(plValue)) {
+        if (plValue > 0) {
+          tpCount++;
+        } else if (plValue < 0) {
+          slCount++;
+        }
       }
     });
 
@@ -229,12 +231,12 @@ export default function AccountPage({ accountKey, columns }) {
     
     // 5. TP/SL Analysis
     const tpTrades = periodTrades.filter(r => {
-      const tpOrSl = (r["TP OR SL ?"] || "").toLowerCase().trim();
-      return tpOrSl.includes("tp") || tpOrSl.includes("take profit");
+      const plValue = parseFloat(r["P/L"]);
+      return !isNaN(plValue) && plValue > 0;
     });
     const slTrades = periodTrades.filter(r => {
-      const tpOrSl = (r["TP OR SL ?"] || "").toLowerCase().trim();
-      return tpOrSl.includes("sl") || tpOrSl.includes("stop loss");
+      const plValue = parseFloat(r["P/L"]);
+      return !isNaN(plValue) && plValue < 0;
     });
     
     const tpFeedback = tpTrades.map(r => r["FEEDBACK"]).filter(Boolean);
@@ -1218,7 +1220,7 @@ export default function AccountPage({ accountKey, columns }) {
       <Box
         sx={{
           display: "grid",
-            gridTemplateColumns: "120px 140px 100px 140px 120px 120px 120px 1fr 80px",
+            gridTemplateColumns: "120px 140px 100px 140px 120px 120px 140px 1fr 80px",
             gap: 0,
             minWidth: "1200px",
         }}
@@ -1583,6 +1585,58 @@ export default function AccountPage({ accountKey, columns }) {
                         }}
                       />
                     </Tooltip>
+                ) : c === "P/L" ? (
+                  <TextField
+                    value={r[c] || ""}
+                    onChange={(e) => updateCell(r._id, c, e.target.value)}
+                    type="number"
+                    variant="outlined"
+                    fullWidth
+                    placeholder="Enter P/L"
+                    size="small"
+                    sx={{
+                      "& .MuiInputBase-root": {
+                        backgroundColor: (() => {
+                          const val = parseFloat(r[c]);
+                          if (isNaN(val) || val === 0) return "#ffffff";
+                          return val > 0 ? "rgba(16, 185, 129, 0.08)" : "rgba(239, 68, 68, 0.08)";
+                        })(),
+                        borderRadius: 0,
+                        height: "32px",
+                        transition: "all 0.2s ease",
+                      },
+                      "& .MuiInputBase-input": {
+                        textAlign: "center",
+                        color: (() => {
+                          const val = parseFloat(r[c]);
+                          if (isNaN(val) || val === 0) return "#1f2937";
+                          return val > 0 ? "#10b981" : "#ef4444";
+                        })(),
+                        fontWeight: 600,
+                        fontSize: 13,
+                        padding: "6px 8px",
+                        transition: "color 0.2s ease",
+                      },
+                      "& fieldset": { 
+                        borderColor: (() => {
+                          const val = parseFloat(r[c]);
+                          if (isNaN(val) || val === 0) return "#d1d5db";
+                          return val > 0 ? "rgba(16, 185, 129, 0.3)" : "rgba(239, 68, 68, 0.3)";
+                        })(),
+                        transition: "border-color 0.2s ease",
+                      },
+                      "&:hover fieldset": {
+                        borderColor: (() => {
+                          const val = parseFloat(r[c]);
+                          if (isNaN(val) || val === 0) return "#7f1d1d";
+                          return val > 0 ? "rgba(16, 185, 129, 0.5)" : "rgba(239, 68, 68, 0.5)";
+                        })(),
+                      },
+                      "& .Mui-focused fieldset": {
+                        borderColor: "#6366f1",
+                      },
+                    }}
+                  />
                 ) : (
                   <TextField
                     value={r[c] || ""}

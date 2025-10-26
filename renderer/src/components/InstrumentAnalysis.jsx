@@ -33,10 +33,9 @@ export default function InstrumentAnalysis({ rows }) {
 
     rows.forEach(row => {
       const instrument = (row["INTRUMENT"] || "").trim().toUpperCase();
-      const tpOrSl = (row["TP OR SL ?"] || "").toLowerCase().trim();
-      const risk = parseFloat(row["CALCULATED RISK"]) || 0;
+      const plAmount = parseFloat(row["P/L"]);
 
-      if (!instrument || !tpOrSl) return;
+      if (!instrument || isNaN(plAmount)) return;
 
       if (!statsMap.has(instrument)) {
         statsMap.set(instrument, {
@@ -57,12 +56,12 @@ export default function InstrumentAnalysis({ rows }) {
       const stats = statsMap.get(instrument);
       stats.total += 1;
 
-      if (tpOrSl.includes("tp") || tpOrSl.includes("take profit")) {
+      if (plAmount > 0) {
         stats.tp += 1;
-        stats.totalProfit += risk;
-      } else if (tpOrSl.includes("sl") || tpOrSl.includes("stop loss")) {
+        stats.totalProfit += plAmount;
+      } else if (plAmount < 0) {
         stats.sl += 1;
-        stats.totalLoss += risk;
+        stats.totalLoss += Math.abs(plAmount);
       }
 
       // Calculate derived metrics
@@ -128,7 +127,7 @@ export default function InstrumentAnalysis({ rows }) {
             🎯 Instrument Performance
           </Typography>
           <Typography variant="body2" sx={{ color: "text.secondary", fontStyle: "italic" }}>
-            No instrument data available yet. Start adding trades with instruments and outcomes.
+            No instrument data available yet. Start adding trades with instruments and P/L amounts to see performance analysis.
           </Typography>
         </CardContent>
       </Card>
