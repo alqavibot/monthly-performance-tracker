@@ -26,6 +26,7 @@ import { v4 as uuidv4 } from "uuid";
 import PerformanceCharts from "./PerformanceCharts";
 import WinRateGraphs from "./WinRateGraphs";
 import InstrumentAnalysis from "./InstrumentAnalysis";
+import AchievementsPage from "./AchievementsPage";
 
 // Helper: safe local file name for Electron
 function localFileName(key) {
@@ -48,6 +49,7 @@ export default function AccountPage({ accountKey, columns }) {
   const [feedbackView, setFeedbackView] = useState("weekly"); // "weekly" or "monthly"
   const [analyticsDialogOpen, setAnalyticsDialogOpen] = useState(false);
   const [analyticsTab, setAnalyticsTab] = useState(0); // 0 = Performance, 1 = Win Rate, 2 = Instruments
+  const [achievementsDialogOpen, setAchievementsDialogOpen] = useState(false);
 
   // Create one blank row template with auto-filled date
   function emptyRow() {
@@ -720,7 +722,7 @@ export default function AccountPage({ accountKey, columns }) {
               {accountKey.split("/")[0]} • {rows.length} {rows.length === 1 ? "trade" : "trades"}
       </Typography>
           </Box>
-          <Stack direction="row" spacing={2} alignItems="center">
+          <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
             <TextField
               label="Expected Risk"
               value={expectedRisk}
@@ -729,19 +731,19 @@ export default function AccountPage({ accountKey, columns }) {
               size="small"
               placeholder="e.g., 100"
               sx={{
-                width: 150,
+                width: 130,
                 "& .MuiInputBase-root": {
                   backgroundColor: "#ffffff",
-                  height: "40px",
+                  height: "36px",
                 },
                 "& .MuiInputBase-input": {
                   color: "#7f1d1d",
                   fontWeight: 500,
-                  fontSize: 13,
+                  fontSize: 12,
                 },
                 "& .MuiInputLabel-root": {
                   color: "#6b7280",
-                  fontSize: 12,
+                  fontSize: 11,
                 },
                 "& fieldset": { 
                   borderColor: "#d1d5db",
@@ -759,13 +761,14 @@ export default function AccountPage({ accountKey, columns }) {
               color="primary"
               onClick={addRow}
               sx={{
-                px: 3,
-                py: 1,
-                fontSize: 14,
+                px: 2,
+                py: 0.75,
+                fontSize: 12,
                 fontWeight: 500,
+                minWidth: "auto",
               }}
             >
-          + Add New Trade
+          + Add Trade
         </Button>
         <Button
           variant="contained"
@@ -811,14 +814,15 @@ export default function AccountPage({ accountKey, columns }) {
                   });
               }}
               sx={{
-                px: 3,
-                py: 1,
-                fontSize: 14,
+                px: 2,
+                py: 0.75,
+                fontSize: 12,
                 fontWeight: 500,
+                minWidth: "auto",
               }}
               disabled={saving}
             >
-              {saving ? "Saving..." : "Save to Cloud"}
+              {saving ? "Saving..." : "Save"}
             </Button>
             <Button
               variant="outlined"
@@ -876,34 +880,37 @@ export default function AccountPage({ accountKey, columns }) {
                 window.XLSX.writeFile(wb, fileName);
               }}
               sx={{
-                px: 3,
-                py: 1,
-                fontSize: 14,
+                px: 2,
+                py: 0.75,
+                fontSize: 12,
                 fontWeight: 500,
+                minWidth: "auto",
               }}
             >
-              Download Excel
+              Excel
             </Button>
             <Button
               variant="outlined"
               onClick={() => setFeedbackDialogOpen(true)}
               sx={{
-                px: 3,
-                py: 1,
-                fontSize: 14,
+                px: 2,
+                py: 0.75,
+                fontSize: 12,
                 fontWeight: 500,
+                minWidth: "auto",
               }}
             >
-              View Report
+              Report
             </Button>
             <Button
               variant="contained"
               onClick={() => setAnalyticsDialogOpen(true)}
               sx={{
-                px: 3,
-                py: 1,
-                fontSize: 14,
+                px: 2,
+                py: 0.75,
+                fontSize: 12,
                 fontWeight: 500,
+                minWidth: "auto",
                 bgcolor: "#6366f1",
                 "&:hover": {
                   bgcolor: "#4f46e5",
@@ -911,6 +918,24 @@ export default function AccountPage({ accountKey, columns }) {
               }}
             >
               📊 Analytics
+            </Button>
+            <Button
+              variant="contained"
+              onClick={() => setAchievementsDialogOpen(true)}
+              sx={{
+                px: 2,
+                py: 0.75,
+                fontSize: 12,
+                fontWeight: 500,
+                minWidth: "auto",
+                bgcolor: "#fbbf24",
+                color: "#78350f",
+                "&:hover": {
+                  bgcolor: "#f59e0b",
+                },
+              }}
+            >
+              🏆 Achievements
             </Button>
           </Stack>
         </Stack>
@@ -2406,6 +2431,67 @@ export default function AccountPage({ accountKey, columns }) {
               bgcolor: "#6366f1",
               "&:hover": {
                 bgcolor: "#4f46e5",
+              },
+            }}
+          >
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Achievements & Stats Dialog */}
+      <Dialog
+        open={achievementsDialogOpen}
+        onClose={() => setAchievementsDialogOpen(false)}
+        maxWidth="lg"
+        fullWidth
+        PaperProps={{
+          sx: {
+            bgcolor: "background.paper",
+            borderRadius: 3,
+            maxHeight: "90vh",
+          }
+        }}
+      >
+        <DialogTitle sx={{ 
+          fontWeight: 600, 
+          fontSize: 18,
+          background: "linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%)",
+          color: "#78350f",
+          borderBottom: "1px solid rgba(251, 191, 36, 0.2)",
+        }}>
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              🏆 Achievements & Personal Records
+              <Chip 
+                label={accountKey.split("/")[1]} 
+                size="small" 
+                sx={{ 
+                  bgcolor: "rgba(120, 53, 15, 0.15)", 
+                  color: "#78350f",
+                  fontWeight: 500,
+                  fontSize: 11,
+                  border: "1px solid rgba(120, 53, 15, 0.3)",
+                }} 
+              />
+            </Box>
+            <Typography variant="caption" sx={{ color: "rgba(120, 53, 15, 0.7)" }}>
+              Your trading journey
+            </Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ p: 3, bgcolor: "#fafafa" }}>
+          <AchievementsPage rows={rows} />
+        </DialogContent>
+        <DialogActions sx={{ p: 2, borderTop: "1px solid #e5e7eb", bgcolor: "#fafafa" }}>
+          <Button 
+            onClick={() => setAchievementsDialogOpen(false)} 
+            variant="contained" 
+            sx={{
+              bgcolor: "#fbbf24",
+              color: "#78350f",
+              "&:hover": {
+                bgcolor: "#f59e0b",
               },
             }}
           >
