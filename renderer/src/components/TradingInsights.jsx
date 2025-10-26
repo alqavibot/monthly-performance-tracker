@@ -15,6 +15,7 @@ import LightbulbIcon from "@mui/icons-material/Lightbulb";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 import PsychologyIcon from "@mui/icons-material/Psychology";
+import { useThemeMode } from "../ThemeContext";
 
 // Parse date
 function parseTradeDate(dateString) {
@@ -35,6 +36,7 @@ function parseTradeDate(dateString) {
 }
 
 export default function TradingInsights({ rows }) {
+  const { mode } = useThemeMode();
   const insights = useMemo(() => {
     const validTrades = rows.filter(row => {
       const plValue = parseFloat(row["P/L"]);
@@ -349,7 +351,7 @@ export default function TradingInsights({ rows }) {
 
   if (insights.insufficientData) {
     return (
-      <Card sx={{ background: "#ffffff", border: "1px solid #e5e7eb" }}>
+      <Card sx={{ bgcolor: "background.paper", border: "1px solid", borderColor: "divider" }}>
         <CardContent>
           <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
             <PsychologyIcon sx={{ color: "#6366f1", fontSize: 28 }} />
@@ -370,7 +372,7 @@ export default function TradingInsights({ rows }) {
   return (
     <Box>
       {/* Header */}
-      <Card sx={{ mb: 3, background: "#ffffff", border: "1px solid #e5e7eb" }}>
+      <Card sx={{ mb: 3, bgcolor: "background.paper", border: "1px solid", borderColor: "divider" }}>
         <CardContent>
           <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
             <PsychologyIcon sx={{ color: "#6366f1", fontSize: 28 }} />
@@ -390,7 +392,7 @@ export default function TradingInsights({ rows }) {
       </Card>
 
       {/* Pattern Recognition */}
-      <Card sx={{ mb: 3, background: "#ffffff", border: "1px solid #e5e7eb" }}>
+      <Card sx={{ mb: 3, bgcolor: "background.paper", border: "1px solid", borderColor: "divider" }}>
         <CardContent>
           <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
             <WarningAmberIcon sx={{ color: "#f59e0b", fontSize: 24 }} />
@@ -430,7 +432,7 @@ export default function TradingInsights({ rows }) {
       </Card>
 
       {/* Personalized Suggestions */}
-      <Card sx={{ background: "#ffffff", border: "1px solid #e5e7eb" }}>
+      <Card sx={{ bgcolor: "background.paper", border: "1px solid", borderColor: "divider" }}>
         <CardContent>
           <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
             <LightbulbIcon sx={{ color: "#fbbf24", fontSize: 24 }} />

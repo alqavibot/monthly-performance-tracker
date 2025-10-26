@@ -25,8 +25,10 @@ import {
   ResponsiveContainer,
   Cell,
 } from "recharts";
+import { useThemeMode } from "../ThemeContext";
 
 export default function InstrumentAnalysis({ rows }) {
+  const { mode } = useThemeMode();
   // Analyze performance by instrument
   const instrumentStats = useMemo(() => {
     const statsMap = new Map();
@@ -121,7 +123,7 @@ export default function InstrumentAnalysis({ rows }) {
 
   if (instrumentStats.length === 0) {
     return (
-      <Card sx={{ background: "#ffffff", border: "1px solid #e5e7eb" }}>
+      <Card sx={{ bgcolor: "background.paper", border: "1px solid", borderColor: "divider" }}>
         <CardContent>
           <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
             🎯 Instrument Performance
@@ -138,7 +140,7 @@ export default function InstrumentAnalysis({ rows }) {
   const totalTrades = instrumentStats.reduce((sum, stat) => sum + stat.total, 0);
 
   return (
-    <Card sx={{ background: "#ffffff", border: "1px solid #e5e7eb" }}>
+    <Card sx={{ bgcolor: "background.paper", border: "1px solid", borderColor: "divider" }}>
       <CardContent>
         <Typography variant="h6" sx={{ fontWeight: 600, mb: 1 }}>
           🎯 Instrument Performance

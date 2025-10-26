@@ -16,6 +16,7 @@ import TrendingUpIcon from "@mui/icons-material/TrendingUp";
 import LocalFireDepartmentIcon from "@mui/icons-material/LocalFireDepartment";
 import StarIcon from "@mui/icons-material/Star";
 import WorkspacePremiumIcon from "@mui/icons-material/WorkspacePremium";
+import { useThemeMode } from "../ThemeContext";
 
 // Parse date from "DATE/DAY" field
 function parseTradeDate(dateString) {
@@ -44,6 +45,7 @@ function getWeekStart(date) {
 }
 
 export default function AchievementsPage({ rows }) {
+  const { mode } = useThemeMode();
   // Calculate all achievements and records
   const stats = useMemo(() => {
     const validTrades = rows.filter(row => {
@@ -320,7 +322,7 @@ export default function AchievementsPage({ rows }) {
       )}
 
       {/* Personal Records */}
-      <Card sx={{ mb: 3, background: "#ffffff", border: "1px solid #e5e7eb" }}>
+      <Card sx={{ mb: 3, bgcolor: "background.paper", border: "1px solid", borderColor: "divider" }}>
         <CardContent>
           <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
             <EmojiEventsIcon sx={{ color: "#fbbf24", fontSize: 28 }} />
@@ -425,7 +427,7 @@ export default function AchievementsPage({ rows }) {
       </Card>
 
       {/* Achievements */}
-      <Card sx={{ background: "#ffffff", border: "1px solid #e5e7eb" }}>
+      <Card sx={{ bgcolor: "background.paper", border: "1px solid", borderColor: "divider" }}>
         <CardContent>
           <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
             <WorkspacePremiumIcon sx={{ color: "#fbbf24", fontSize: 28 }} />

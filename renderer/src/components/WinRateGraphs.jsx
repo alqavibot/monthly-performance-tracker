@@ -9,6 +9,7 @@ import {
   Stack,
   Chip,
 } from "@mui/material";
+import { useThemeMode } from "../ThemeContext";
 import {
   PieChart,
   Pie,
@@ -67,6 +68,7 @@ function getWeekStart(date) {
 }
 
 export default function WinRateGraphs({ rows }) {
+  const { mode } = useThemeMode();
   const [viewMode, setViewMode] = useState("weekly");
 
   // Calculate overall stats
@@ -211,7 +213,7 @@ export default function WinRateGraphs({ rows }) {
 
   if (overallStats.total === 0) {
     return (
-      <Card sx={{ background: "#ffffff", border: "1px solid #e5e7eb" }}>
+      <Card sx={{ bgcolor: "background.paper", border: "1px solid", borderColor: "divider" }}>
         <CardContent>
           <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
             📈 Win Rate Analysis
@@ -225,7 +227,7 @@ export default function WinRateGraphs({ rows }) {
   }
 
   return (
-    <Card sx={{ background: "#ffffff", border: "1px solid #e5e7eb" }}>
+    <Card sx={{ bgcolor: "background.paper", border: "1px solid", borderColor: "divider" }}>
       <CardContent>
         <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 3 }}>
           <Box>

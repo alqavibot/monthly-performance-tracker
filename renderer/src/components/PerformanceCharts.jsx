@@ -23,6 +23,7 @@ import {
   AreaChart,
 } from "recharts";
 import { useState } from "react";
+import { useThemeMode } from "../ThemeContext";
 
 // Parse date from "DATE/DAY" field (format: "26 Oct - Sunday")
 function parseTradeDate(dateString) {
@@ -45,6 +46,7 @@ function parseTradeDate(dateString) {
 }
 
 export default function PerformanceCharts({ rows }) {
+  const { mode } = useThemeMode();
   const [chartType, setChartType] = useState("line");
 
   // Process data for performance over time
@@ -136,7 +138,7 @@ export default function PerformanceCharts({ rows }) {
 
   if (performanceData.length === 0) {
     return (
-      <Card sx={{ background: "#ffffff", border: "1px solid #e5e7eb" }}>
+      <Card sx={{ bgcolor: "background.paper", border: "1px solid", borderColor: "divider" }}>
         <CardContent>
           <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
             📊 Performance Over Time
@@ -150,7 +152,7 @@ export default function PerformanceCharts({ rows }) {
   }
 
   return (
-    <Card sx={{ background: "#ffffff", border: "1px solid #e5e7eb" }}>
+    <Card sx={{ bgcolor: "background.paper", border: "1px solid", borderColor: "divider" }}>
       <CardContent>
         <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 3 }}>
           <Box>

@@ -28,6 +28,12 @@ import WinRateGraphs from "./WinRateGraphs";
 import InstrumentAnalysis from "./InstrumentAnalysis";
 import AchievementsPage from "./AchievementsPage";
 import TradingInsights from "./TradingInsights";
+import HistoricalComparison from "./HistoricalComparison";
+import CustomDashboard from "./CustomDashboard";
+import { useThemeMode } from "../ThemeContext";
+import Brightness4Icon from "@mui/icons-material/Brightness4";
+import Brightness7Icon from "@mui/icons-material/Brightness7";
+import DashboardIcon from "@mui/icons-material/Dashboard";
 
 // Helper: safe local file name for Electron
 function localFileName(key) {
@@ -38,6 +44,7 @@ function localFileName(key) {
 const hasElectron = window?.electronAPI?.writeLocalFile;
 
 export default function AccountPage({ accountKey, columns }) {
+  const { mode, toggleTheme } = useThemeMode();
   const [rows, setRows] = useState([]);
   const [openSnack, setOpenSnack] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -49,8 +56,9 @@ export default function AccountPage({ accountKey, columns }) {
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const [feedbackView, setFeedbackView] = useState("weekly"); // "weekly" or "monthly"
   const [analyticsDialogOpen, setAnalyticsDialogOpen] = useState(false);
-  const [analyticsTab, setAnalyticsTab] = useState(0); // 0 = Performance, 1 = Win Rate, 2 = Instruments, 3 = Insights
+  const [analyticsTab, setAnalyticsTab] = useState(0); // 0 = Performance, 1 = Win Rate, 2 = Instruments, 3 = Insights, 4 = Historical
   const [achievementsDialogOpen, setAchievementsDialogOpen] = useState(false);
+  const [dashboardDialogOpen, setDashboardDialogOpen] = useState(false);
 
   // Create one blank row template with auto-filled date
   function emptyRow() {
@@ -676,22 +684,25 @@ export default function AccountPage({ accountKey, columns }) {
       sx={{
         width: "100%",
         p: 0,
+        bgcolor: "background.default",
+        minHeight: "100vh",
       }}
     >
       {/* Professional Header */}
       <Box
         sx={{
-          background: "#fafafa",
+          bgcolor: "background.paper",
           borderRadius: 2,
           p: 2,
           mb: 2,
-          border: "1px solid #e5e7eb",
+          border: "1px solid",
+          borderColor: "divider",
         }}
       >
         <Stack direction="row" alignItems="center" justifyContent="space-between">
           <Box>
             <Stack direction="row" alignItems="center" spacing={2}>
-              <Typography variant="h4" sx={{ fontWeight: 700 }}>
+              <Typography variant="h4" sx={{ fontWeight: 700, color: "text.primary" }}>
                 {accountKey.split("/")[1]}
               </Typography>
               {saving && (
@@ -734,11 +745,11 @@ export default function AccountPage({ accountKey, columns }) {
               sx={{
                 width: 130,
                 "& .MuiInputBase-root": {
-                  backgroundColor: "#ffffff",
+                  backgroundColor: mode === "dark" ? "#1e293b" : "#ffffff",
                   height: "36px",
                 },
                 "& .MuiInputBase-input": {
-                  color: "#7f1d1d",
+                  color: mode === "dark" ? "#f87171" : "#7f1d1d",
                   fontWeight: 500,
                   fontSize: 12,
                 },
@@ -905,6 +916,23 @@ export default function AccountPage({ accountKey, columns }) {
             </Button>
             <Button
               variant="contained"
+              onClick={() => setDashboardDialogOpen(true)}
+              sx={{
+                px: 2,
+                py: 0.75,
+                fontSize: 12,
+                fontWeight: 500,
+                minWidth: "auto",
+                bgcolor: "#8b5cf6",
+                "&:hover": {
+                  bgcolor: "#7c3aed",
+                },
+              }}
+            >
+              📊 Dashboard
+            </Button>
+            <Button
+              variant="contained"
               onClick={() => setAnalyticsDialogOpen(true)}
               sx={{
                 px: 2,
@@ -938,6 +966,22 @@ export default function AccountPage({ accountKey, columns }) {
             >
               🏆 Achievements
             </Button>
+            <Tooltip title={mode === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode"}>
+              <IconButton
+                onClick={toggleTheme}
+                sx={{
+                  color: mode === "dark" ? "#fbbf24" : "#1f2937",
+                  border: "1px solid",
+                  borderColor: mode === "dark" ? "#fbbf24" : "#d1d5db",
+                  "&:hover": {
+                    bgcolor: mode === "dark" ? "rgba(251, 191, 36, 0.1)" : "rgba(31, 41, 55, 0.05)",
+                  }
+                }}
+                size="small"
+              >
+                {mode === "dark" ? <Brightness7Icon /> : <Brightness4Icon />}
+              </IconButton>
+            </Tooltip>
           </Stack>
         </Stack>
       </Box>
@@ -945,9 +989,11 @@ export default function AccountPage({ accountKey, columns }) {
       {/* Month Display */}
       <Box
         sx={{
-          background: "#fafafa",
-          border: "1px solid #e5e7eb",
-          borderBottom: isWeekend() ? "1px solid #e5e7eb" : "none",
+          bgcolor: "background.paper",
+          border: "1px solid",
+          borderColor: "divider",
+          borderBottom: isWeekend() ? "1px solid" : "none",
+          borderBottomColor: "divider",
           p: 1.5,
           display: "flex",
           alignItems: "center",
@@ -958,7 +1004,7 @@ export default function AccountPage({ accountKey, columns }) {
           variant="subtitle1"
           sx={{
             fontWeight: 500,
-            color: "#6b7280",
+            color: "text.secondary",
             letterSpacing: 0.5,
             fontSize: 14,
           }}
@@ -976,8 +1022,9 @@ export default function AccountPage({ accountKey, columns }) {
         return (
           <Box
             sx={{
-              background: "rgba(153, 27, 27, 0.05)",
-              border: "1px solid rgba(153, 27, 27, 0.15)",
+              bgcolor: mode === "dark" ? "rgba(239, 68, 68, 0.1)" : "rgba(153, 27, 27, 0.05)",
+              border: "1px solid",
+              borderColor: mode === "dark" ? "rgba(239, 68, 68, 0.3)" : "rgba(153, 27, 27, 0.15)",
               borderTop: "none",
               p: 2,
               mb: 2,
@@ -989,7 +1036,7 @@ export default function AccountPage({ accountKey, columns }) {
                   variant="subtitle1"
                   sx={{
                     fontWeight: 600,
-                    color: "#991b1b",
+                    color: mode === "dark" ? "#fca5a5" : "#991b1b",
                     fontSize: 15,
                   }}
                 >
@@ -1002,9 +1049,10 @@ export default function AccountPage({ accountKey, columns }) {
                       gap: 3,
                       px: 3,
                       py: 1,
-                      background: "#ffffff",
+                      bgcolor: "background.paper",
                       borderRadius: 1.5,
-                      border: "1px solid #e5e7eb",
+                      border: "1px solid",
+                      borderColor: "divider",
                     }}
                   >
                     <Box sx={{ textAlign: "center" }}>
@@ -1235,11 +1283,12 @@ export default function AccountPage({ accountKey, columns }) {
       {/* Modern Table Card */}
       <Box
         sx={{
-          background: "#ffffff",
+          bgcolor: "background.paper",
           borderRadius: 2,
           overflow: "auto",
-          border: "2px solid #e5e7eb",
-          boxShadow: "0 1px 3px rgba(0, 0, 0, 0.1)",
+          border: "2px solid",
+          borderColor: "divider",
+          boxShadow: mode === "dark" ? "0 1px 3px rgba(0, 0, 0, 0.5)" : "0 1px 3px rgba(0, 0, 0, 0.1)",
         }}
       >
         {/* Table Container */}
@@ -1260,8 +1309,10 @@ export default function AccountPage({ accountKey, columns }) {
                 fontWeight: 700,
                 fontSize: 11,
               textAlign: "center",
-                background: "linear-gradient(135deg, #7f1d1d 0%, #991b1b 100%)",
-                borderBottom: "3px solid #5c0f0f",
+                background: mode === "dark" 
+                  ? "linear-gradient(135deg, #1e293b 0%, #334155 100%)"
+                  : "linear-gradient(135deg, #7f1d1d 0%, #991b1b 100%)",
+                borderBottom: mode === "dark" ? "3px solid #0f172a" : "3px solid #5c0f0f",
                 color: "#ffffff",
                 textTransform: "uppercase",
                 letterSpacing: 0.5,
@@ -1276,8 +1327,10 @@ export default function AccountPage({ accountKey, columns }) {
               fontWeight: 700,
               fontSize: 11,
             textAlign: "center",
-              background: "linear-gradient(135deg, #7f1d1d 0%, #991b1b 100%)",
-              borderBottom: "3px solid #5c0f0f",
+              background: mode === "dark" 
+                ? "linear-gradient(135deg, #1e293b 0%, #334155 100%)"
+                : "linear-gradient(135deg, #7f1d1d 0%, #991b1b 100%)",
+              borderBottom: mode === "dark" ? "3px solid #0f172a" : "3px solid #5c0f0f",
               color: "#ffffff",
               textTransform: "uppercase",
               letterSpacing: 0.5,
@@ -1624,8 +1677,10 @@ export default function AccountPage({ accountKey, columns }) {
                       "& .MuiInputBase-root": {
                         backgroundColor: (() => {
                           const val = parseFloat(r[c]);
-                          if (isNaN(val) || val === 0) return "#ffffff";
-                          return val > 0 ? "rgba(16, 185, 129, 0.08)" : "rgba(239, 68, 68, 0.08)";
+                          if (isNaN(val) || val === 0) return mode === "dark" ? "#1e293b" : "#ffffff";
+                          return val > 0 
+                            ? (mode === "dark" ? "rgba(16, 185, 129, 0.15)" : "rgba(16, 185, 129, 0.08)")
+                            : (mode === "dark" ? "rgba(239, 68, 68, 0.15)" : "rgba(239, 68, 68, 0.08)");
                         })(),
                         borderRadius: 0,
                         height: "32px",
@@ -1635,7 +1690,7 @@ export default function AccountPage({ accountKey, columns }) {
                         textAlign: "center",
                         color: (() => {
                           const val = parseFloat(r[c]);
-                          if (isNaN(val) || val === 0) return "#1f2937";
+                          if (isNaN(val) || val === 0) return mode === "dark" ? "#f1f5f9" : "#1f2937";
                           return val > 0 ? "#10b981" : "#ef4444";
                         })(),
                         fontWeight: 600,
@@ -1646,7 +1701,7 @@ export default function AccountPage({ accountKey, columns }) {
                       "& fieldset": { 
                         borderColor: (() => {
                           const val = parseFloat(r[c]);
-                          if (isNaN(val) || val === 0) return "#d1d5db";
+                          if (isNaN(val) || val === 0) return mode === "dark" ? "#475569" : "#d1d5db";
                           return val > 0 ? "rgba(16, 185, 129, 0.3)" : "rgba(239, 68, 68, 0.3)";
                         })(),
                         transition: "border-color 0.2s ease",
@@ -1654,12 +1709,12 @@ export default function AccountPage({ accountKey, columns }) {
                       "&:hover fieldset": {
                         borderColor: (() => {
                           const val = parseFloat(r[c]);
-                          if (isNaN(val) || val === 0) return "#7f1d1d";
+                          if (isNaN(val) || val === 0) return mode === "dark" ? "#f87171" : "#7f1d1d";
                           return val > 0 ? "rgba(16, 185, 129, 0.5)" : "rgba(239, 68, 68, 0.5)";
                         })(),
                       },
                       "& .Mui-focused fieldset": {
-                        borderColor: "#6366f1",
+                        borderColor: mode === "dark" ? "#818cf8" : "#6366f1",
                       },
                     }}
                   />
@@ -1691,14 +1746,14 @@ export default function AccountPage({ accountKey, columns }) {
                       size="small"
                     sx={{
                         "& .MuiInputBase-root": {
-                          backgroundColor: "#ffffff",
+                          backgroundColor: mode === "dark" ? "#1e293b" : "#ffffff",
                           borderRadius: 0,
                           height: "32px",
                           transition: "all 0.2s ease",
                         },
                       "& .MuiInputBase-input": {
                         textAlign: "center",
-                          color: "#1f2937",
+                          color: mode === "dark" ? "#f1f5f9" : "#1f2937",
                           fontWeight: 500,
                           fontSize: 12,
                           padding: "6px 8px",
@@ -2394,6 +2449,7 @@ export default function AccountPage({ accountKey, columns }) {
             <Tab label="🎯 Win Rate Analysis" />
             <Tab label="💹 Instrument Performance" />
             <Tab label="🧠 AI Insights" />
+            <Tab label="📅 Historical" />
           </Tabs>
 
           <Box sx={{ p: 3 }}>
@@ -2432,9 +2488,18 @@ export default function AccountPage({ accountKey, columns }) {
                 <TradingInsights rows={rows} />
               </Box>
             )}
+            
+            {analyticsTab === 4 && (
+              <Box>
+                <Typography variant="body2" sx={{ color: "text.secondary", mb: 2 }}>
+                  Compare this month's performance with previous months to track your progress over time.
+                </Typography>
+                <HistoricalComparison rows={rows} />
+              </Box>
+            )}
           </Box>
         </DialogContent>
-        <DialogActions sx={{ p: 2, borderTop: "1px solid #e5e7eb", bgcolor: "#fafafa" }}>
+        <DialogActions sx={{ p: 2, borderTop: "1px solid", borderColor: "divider", bgcolor: "background.default" }}>
           <Button 
             onClick={() => setAnalyticsDialogOpen(false)} 
             variant="contained" 
@@ -2491,10 +2556,10 @@ export default function AccountPage({ accountKey, columns }) {
             </Typography>
           </Box>
         </DialogTitle>
-        <DialogContent sx={{ p: 3, bgcolor: "#fafafa" }}>
+        <DialogContent sx={{ p: 3, bgcolor: "background.default" }}>
           <AchievementsPage rows={rows} />
         </DialogContent>
-        <DialogActions sx={{ p: 2, borderTop: "1px solid #e5e7eb", bgcolor: "#fafafa" }}>
+        <DialogActions sx={{ p: 2, borderTop: "1px solid", borderColor: "divider", bgcolor: "background.default" }}>
           <Button 
             onClick={() => setAchievementsDialogOpen(false)} 
             variant="contained" 
@@ -2503,6 +2568,67 @@ export default function AccountPage({ accountKey, columns }) {
               color: "#78350f",
               "&:hover": {
                 bgcolor: "#f59e0b",
+              },
+            }}
+          >
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Custom Dashboard Dialog */}
+      <Dialog
+        open={dashboardDialogOpen}
+        onClose={() => setDashboardDialogOpen(false)}
+        maxWidth="lg"
+        fullWidth
+        PaperProps={{
+          sx: {
+            bgcolor: "background.paper",
+            borderRadius: 3,
+            maxHeight: "90vh",
+          }
+        }}
+      >
+        <DialogTitle sx={{ 
+          fontWeight: 600, 
+          fontSize: 18,
+          background: "linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)",
+          color: "white",
+          borderBottom: "1px solid rgba(139, 92, 246, 0.2)",
+        }}>
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <DashboardIcon />
+              Customizable Dashboard
+              <Chip 
+                label={accountKey.split("/")[1]} 
+                size="small" 
+                sx={{ 
+                  bgcolor: "rgba(255, 255, 255, 0.2)", 
+                  color: "white",
+                  fontWeight: 500,
+                  fontSize: 11,
+                  border: "1px solid rgba(255, 255, 255, 0.3)",
+                }} 
+              />
+            </Box>
+            <Typography variant="caption" sx={{ color: "rgba(255, 255, 255, 0.8)" }}>
+              Quick overview
+            </Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ p: 3, bgcolor: "background.default" }}>
+          <CustomDashboard rows={rows} />
+        </DialogContent>
+        <DialogActions sx={{ p: 2, borderTop: "1px solid", borderColor: "divider", bgcolor: "background.default" }}>
+          <Button 
+            onClick={() => setDashboardDialogOpen(false)} 
+            variant="contained" 
+            sx={{
+              bgcolor: "#8b5cf6",
+              "&:hover": {
+                bgcolor: "#7c3aed",
               },
             }}
           >
