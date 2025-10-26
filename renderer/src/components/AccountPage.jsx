@@ -23,6 +23,9 @@ import DeleteIcon from "@mui/icons-material/Delete";
 import { db } from "../App";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { v4 as uuidv4 } from "uuid";
+import PerformanceCharts from "./PerformanceCharts";
+import WinRateGraphs from "./WinRateGraphs";
+import InstrumentAnalysis from "./InstrumentAnalysis";
 
 // Helper: safe local file name for Electron
 function localFileName(key) {
@@ -43,6 +46,8 @@ export default function AccountPage({ accountKey, columns }) {
   const [expectedRisk, setExpectedRisk] = useState(""); // New state for expected risk amount
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const [feedbackView, setFeedbackView] = useState("weekly"); // "weekly" or "monthly"
+  const [analyticsDialogOpen, setAnalyticsDialogOpen] = useState(false);
+  const [analyticsTab, setAnalyticsTab] = useState(0); // 0 = Performance, 1 = Win Rate, 2 = Instruments
 
   // Create one blank row template with auto-filled date
   function emptyRow() {
@@ -888,6 +893,22 @@ export default function AccountPage({ accountKey, columns }) {
               }}
             >
               View Report
+            </Button>
+            <Button
+              variant="contained"
+              onClick={() => setAnalyticsDialogOpen(true)}
+              sx={{
+                px: 3,
+                py: 1,
+                fontSize: 14,
+                fontWeight: 500,
+                bgcolor: "#6366f1",
+                "&:hover": {
+                  bgcolor: "#4f46e5",
+                },
+              }}
+            >
+              📊 Analytics
             </Button>
           </Stack>
         </Stack>
@@ -2223,6 +2244,117 @@ export default function AccountPage({ accountKey, columns }) {
         </DialogContent>
         <DialogActions sx={{ p: 2, borderTop: "1px solid rgba(99, 102, 241, 0.2)" }}>
           <Button onClick={() => setFeedbackDialogOpen(false)} variant="contained" color="primary">
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Analytics Dialog with Charts */}
+      <Dialog
+        open={analyticsDialogOpen}
+        onClose={() => setAnalyticsDialogOpen(false)}
+        maxWidth="lg"
+        fullWidth
+        PaperProps={{
+          sx: {
+            bgcolor: "background.paper",
+            borderRadius: 3,
+            maxHeight: "90vh",
+          }
+        }}
+      >
+        <DialogTitle sx={{ 
+          fontWeight: 600, 
+          fontSize: 18,
+          background: "linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)",
+          color: "white",
+          borderBottom: "1px solid rgba(99, 102, 241, 0.2)",
+        }}>
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              📊 Performance Analytics
+              <Chip 
+                label={accountKey.split("/")[1]} 
+                size="small" 
+                sx={{ 
+                  bgcolor: "rgba(255, 255, 255, 0.2)", 
+                  color: "white",
+                  fontWeight: 500,
+                  fontSize: 11,
+                  border: "1px solid rgba(255, 255, 255, 0.3)",
+                }} 
+              />
+            </Box>
+            <Typography variant="caption" sx={{ color: "rgba(255, 255, 255, 0.8)" }}>
+              {rows.length} total trades
+            </Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ p: 0 }}>
+          <Tabs
+            value={analyticsTab}
+            onChange={(e, newValue) => setAnalyticsTab(newValue)}
+            sx={{ 
+              borderBottom: "1px solid #e5e7eb",
+              bgcolor: "#f9fafb",
+              "& .MuiTab-root": {
+                fontWeight: 500,
+                fontSize: 13,
+                color: "#6b7280",
+              },
+              "& .Mui-selected": {
+                color: "#6366f1 !important",
+              },
+              "& .MuiTabs-indicator": {
+                bgcolor: "#6366f1",
+              },
+            }}
+          >
+            <Tab label="📈 Performance Trends" />
+            <Tab label="🎯 Win Rate Analysis" />
+            <Tab label="💹 Instrument Performance" />
+          </Tabs>
+
+          <Box sx={{ p: 3 }}>
+            {analyticsTab === 0 && (
+              <Box>
+                <Typography variant="body2" sx={{ color: "text.secondary", mb: 2 }}>
+                  Track your profit and loss trends over time. The cumulative P/L line shows your overall account growth.
+                </Typography>
+                <PerformanceCharts rows={rows} />
+              </Box>
+            )}
+            
+            {analyticsTab === 1 && (
+              <Box>
+                <Typography variant="body2" sx={{ color: "text.secondary", mb: 2 }}>
+                  Analyze your win rate patterns and see how your TP vs SL ratio changes over time.
+                </Typography>
+                <WinRateGraphs rows={rows} />
+              </Box>
+            )}
+            
+            {analyticsTab === 2 && (
+              <Box>
+                <Typography variant="body2" sx={{ color: "text.secondary", mb: 2 }}>
+                  Discover which instruments are most profitable and which ones need improvement.
+                </Typography>
+                <InstrumentAnalysis rows={rows} />
+              </Box>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ p: 2, borderTop: "1px solid #e5e7eb", bgcolor: "#fafafa" }}>
+          <Button 
+            onClick={() => setAnalyticsDialogOpen(false)} 
+            variant="contained" 
+            sx={{
+              bgcolor: "#6366f1",
+              "&:hover": {
+                bgcolor: "#4f46e5",
+              },
+            }}
+          >
             Close
           </Button>
         </DialogActions>
