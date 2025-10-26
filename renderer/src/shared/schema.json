@@ -1,0 +1,12 @@
+{
+  "columns": [
+    "DATE/DAY",
+    "INTRUMENT",
+    "TRADE",
+    "CALCULATED RISK",
+    "OVER RISKED ?",
+    "EARLY EXIT ?",
+    "TP OR SL ?",
+    "FEEDBACK"
+  ]
+}
