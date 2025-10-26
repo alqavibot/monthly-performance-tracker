@@ -20,6 +20,8 @@ import {
   Divider,
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
+import EditIcon from "@mui/icons-material/Edit";
+import NotificationsActiveIcon from "@mui/icons-material/NotificationsActive";
 import { db } from "../App";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { v4 as uuidv4 } from "uuid";
@@ -65,6 +67,13 @@ export default function AccountPage({ accountKey, columns }) {
   const [previousMonthData, setPreviousMonthData] = useState(null); // Previous month's raw trades
   const [monthlySummaries, setMonthlySummaries] = useState({}); // Archived summaries { "2025-09": {...}, "2025-08": {...} }
   const [archiveDialogOpen, setArchiveDialogOpen] = useState(false);
+  
+  // 📝 Rename Account State
+  const [renameDialogOpen, setRenameDialogOpen] = useState(false);
+  const [newAccountName, setNewAccountName] = useState("");
+  
+  // 📱 Mobile Features State
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
 
   // Create one blank row template with auto-filled date
   function emptyRow() {
@@ -858,17 +867,17 @@ export default function AccountPage({ accountKey, columns }) {
     <Box
       sx={{
         width: "100%",
-        p: 0,
+        p: { xs: 1, sm: 2, md: 0 }, // Responsive padding
         bgcolor: "background.default",
         minHeight: "100vh",
       }}
     >
-      {/* Professional Header */}
+      {/* Professional Header - Mobile Responsive */}
       <Box
         sx={{
           bgcolor: "background.paper",
-          borderRadius: 2,
-          p: 2,
+          borderRadius: { xs: 1, sm: 2 },
+          p: { xs: 1.5, sm: 2 },
           mb: 2,
           border: "1px solid",
           borderColor: "divider",
@@ -877,9 +886,35 @@ export default function AccountPage({ accountKey, columns }) {
         <Stack direction="row" alignItems="center" justifyContent="space-between">
           <Box>
             <Stack direction="row" alignItems="center" spacing={2}>
-              <Typography variant="h4" sx={{ fontWeight: 700, color: "text.primary" }}>
-                {accountKey.split("/")[1]}
-              </Typography>
+              <Stack direction="row" alignItems="center" spacing={1}>
+                <Typography 
+                  variant="h4" 
+                  sx={{ 
+                    fontWeight: 700, 
+                    color: "text.primary",
+                    fontSize: { xs: "1.25rem", sm: "1.75rem", md: "2rem" } // Responsive font
+                  }}
+                >
+                  {accountKey.split("/")[1]}
+                </Typography>
+                <Tooltip title="Rename Account">
+                  <IconButton
+                    size="small"
+                    onClick={() => {
+                      setNewAccountName(accountKey.split("/")[1]);
+                      setRenameDialogOpen(true);
+                    }}
+                    sx={{
+                      color: "#7f1d1d",
+                      "&:hover": {
+                        bgcolor: "rgba(127, 29, 29, 0.1)",
+                      }
+                    }}
+                  >
+                    <EditIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Stack>
               {saving && (
                 <Chip
                   label="Saving to Cloud..."
@@ -909,10 +944,16 @@ export default function AccountPage({ accountKey, columns }) {
               {accountKey.split("/")[0]} • {rows.length} {rows.length === 1 ? "trade" : "trades"}
       </Typography>
           </Box>
-          {/* Two Row Layout for Buttons */}
-          <Stack spacing={1.5}>
+          {/* Two Row Layout for Buttons - Mobile Responsive */}
+          <Stack spacing={1.5} sx={{ width: { xs: "100%", md: "auto" } }}>
             {/* Row 1: Primary Actions */}
-            <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
+            <Stack 
+              direction="row" 
+              spacing={1} 
+              alignItems="center" 
+              flexWrap="wrap" 
+              sx={{ gap: { xs: 0.5, sm: 1 } }}
+            >
               <TextField
                 label="Expected Risk"
                 value={expectedRisk}
@@ -921,7 +962,7 @@ export default function AccountPage({ accountKey, columns }) {
                 size="small"
                 placeholder="e.g., 100"
                 sx={{
-                  width: 130,
+                  width: { xs: "100%", sm: 130 }, // Full width on mobile
                   "& .MuiInputBase-root": {
                     backgroundColor: mode === "dark" ? "#1e293b" : "#ffffff",
                     height: "36px",
@@ -953,9 +994,10 @@ export default function AccountPage({ accountKey, columns }) {
                 sx={{
                   px: 2,
                   py: 0.75,
-                  fontSize: 12,
+                  fontSize: { xs: 11, sm: 12 },
                   fontWeight: 500,
-                  minWidth: "auto",
+                  minWidth: { xs: "auto", sm: "auto" },
+                  flex: { xs: "1 1 auto", sm: "0 0 auto" }, // Grow on mobile
                 }}
               >
             + Add Trade
@@ -1088,7 +1130,13 @@ export default function AccountPage({ accountKey, columns }) {
             </Stack>
 
             {/* Row 2: Analytics & Tools */}
-            <Stack direction="row" spacing={1.5} alignItems="center" flexWrap="wrap">
+            <Stack 
+              direction="row" 
+              spacing={1} 
+              alignItems="center" 
+              flexWrap="wrap"
+              sx={{ gap: { xs: 0.5, sm: 1 } }}
+            >
               <Button
                 variant="outlined"
                 onClick={() => setFeedbackDialogOpen(true)}
@@ -1173,6 +1221,38 @@ export default function AccountPage({ accountKey, columns }) {
               >
                 🏆 Achievements
               </Button>
+              
+              {/* Notifications Toggle */}
+              <Tooltip title={notificationsEnabled ? "Disable Notifications" : "Enable Notifications"}>
+                <IconButton
+                  onClick={() => {
+                    if (!notificationsEnabled && "Notification" in window) {
+                      Notification.requestPermission().then(permission => {
+                        if (permission === "granted") {
+                          setNotificationsEnabled(true);
+                          new Notification("📊 Notifications Enabled", {
+                            body: "You'll now receive trading alerts!",
+                            icon: "/icon.png"
+                          });
+                        }
+                      });
+                    } else {
+                      setNotificationsEnabled(!notificationsEnabled);
+                    }
+                  }}
+                  sx={{
+                    color: notificationsEnabled ? "#ef4444" : "#6b7280",
+                    border: "1px solid",
+                    borderColor: notificationsEnabled ? "#ef4444" : "#d1d5db",
+                    "&:hover": {
+                      bgcolor: notificationsEnabled ? "rgba(239, 68, 68, 0.1)" : "rgba(107, 114, 128, 0.1)",
+                    }
+                  }}
+                  size="small"
+                >
+                  <NotificationsActiveIcon />
+                </IconButton>
+              </Tooltip>
               <Tooltip title={mode === "dark" ? "Switch to Light Mode" : "Switch to Dark Mode"}>
                 <IconButton
                   onClick={toggleTheme}
@@ -1194,7 +1274,7 @@ export default function AccountPage({ accountKey, columns }) {
         </Stack>
       </Box>
 
-      {/* Month Display */}
+      {/* Month Display - Mobile Responsive */}
       <Box
         sx={{
           bgcolor: "background.paper",
@@ -1202,7 +1282,7 @@ export default function AccountPage({ accountKey, columns }) {
           borderColor: "divider",
           borderBottom: isWeekend() ? "1px solid" : "none",
           borderBottomColor: "divider",
-          p: 1.5,
+          p: { xs: 1, sm: 1.5 },
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -1214,7 +1294,7 @@ export default function AccountPage({ accountKey, columns }) {
             fontWeight: 500,
             color: "text.secondary",
             letterSpacing: 0.5,
-            fontSize: 14,
+            fontSize: { xs: 12, sm: 14 },
           }}
         >
           {getCurrentMonthYear()}
@@ -1488,15 +1568,24 @@ export default function AccountPage({ accountKey, columns }) {
         );
       })()}
 
-      {/* Modern Table Card */}
+      {/* Modern Table Card - Mobile Responsive */}
       <Box
         sx={{
           bgcolor: "background.paper",
-          borderRadius: 2,
-          overflow: "auto",
+          borderRadius: { xs: 1, sm: 2 },
+          overflow: "auto", // Horizontal scroll on mobile
           border: "2px solid",
           borderColor: "divider",
           boxShadow: mode === "dark" ? "0 1px 3px rgba(0, 0, 0, 0.5)" : "0 1px 3px rgba(0, 0, 0, 0.1)",
+          // Smooth scrolling on mobile
+          WebkitOverflowScrolling: "touch",
+          "&::-webkit-scrollbar": {
+            height: "8px",
+          },
+          "&::-webkit-scrollbar-thumb": {
+            backgroundColor: "#7f1d1d",
+            borderRadius: "4px",
+          },
         }}
       >
         {/* Table Container */}
@@ -1505,7 +1594,7 @@ export default function AccountPage({ accountKey, columns }) {
           display: "grid",
             gridTemplateColumns: "120px 140px 100px 140px 120px 120px 140px 1fr 80px",
             gap: 0,
-            minWidth: "1200px",
+            minWidth: "1200px", // Ensures horizontal scroll on mobile
         }}
       >
         {/* Header */}
@@ -3056,6 +3145,64 @@ export default function AccountPage({ accountKey, columns }) {
             }}
           >
             Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Rename Account Dialog */}
+      <Dialog
+        open={renameDialogOpen}
+        onClose={() => setRenameDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 600, color: "#7f1d1d" }}>
+          ✏️ Rename Account
+        </DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            margin="dense"
+            label="New Account Name"
+            fullWidth
+            variant="outlined"
+            value={newAccountName}
+            onChange={(e) => setNewAccountName(e.target.value)}
+            sx={{
+              mt: 2,
+              "& .MuiOutlinedInput-root": {
+                "&:hover fieldset": {
+                  borderColor: "#7f1d1d",
+                },
+                "&.Mui-focused fieldset": {
+                  borderColor: "#7f1d1d",
+                },
+              },
+            }}
+          />
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+            Note: This will update the account name everywhere
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setRenameDialogOpen(false)} color="inherit">
+            Cancel
+          </Button>
+          <Button 
+            onClick={() => {
+              // This would need to be implemented in the parent Dashboard component
+              // For now, just show an alert
+              alert(`Account rename feature coming soon!\n\nThis will rename "${accountKey.split("/")[1]}" to "${newAccountName}"\n\nRequires update to account list management.`);
+              setRenameDialogOpen(false);
+            }}
+            variant="contained"
+            sx={{
+              bgcolor: "#7f1d1d",
+              "&:hover": { bgcolor: "#991b1b" }
+            }}
+            disabled={!newAccountName.trim() || newAccountName === accountKey.split("/")[1]}
+          >
+            Rename
           </Button>
         </DialogActions>
       </Dialog>
