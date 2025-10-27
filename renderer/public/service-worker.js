@@ -1,9 +1,11 @@
 // Service Worker for offline functionality
-const CACHE_NAME = 'trading-tracker-v1';
+const CACHE_NAME = 'trading-tracker-v2';
 const urlsToCache = [
   '/',
   '/index.html',
-  '/manifest.json'
+  '/manifest.json',
+  '/icon-192.png',
+  '/icon-512.png'
 ];
 
 // Install event - cache resources
