@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Box,
   Drawer,
@@ -29,14 +29,72 @@ import { motion } from "framer-motion";
 import AccountList from "./AccountList";
 import AccountPage from "./AccountPage";
 import schema from "../shared/schema.json";
+import { db } from "../App";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 
 export default function Dashboard() {
   const [section, setSection] = useState("Funded Accounts");
   const [activeAccount, setActiveAccount] = useState(null);
-  const [fundedAccounts, setFundedAccounts] = useState(["GOLD1", "GOLD2", "SILVER/US30", "BTCUSD/US30", "GBPJPY"]);
-  const [ownAccounts, setOwnAccounts] = useState(["GOLD1", "GOLD2", "SILVER/US30", "GBPJPY"]);
+  const [fundedAccounts, setFundedAccounts] = useState([]);
+  const [ownAccounts, setOwnAccounts] = useState([]);
   const [openDialog, setOpenDialog] = useState(false);
   const [newAccountName, setNewAccountName] = useState("");
+  const [loading, setLoading] = useState(true);
+  
+  // Load account lists from Firebase on mount
+  useEffect(() => {
+    const loadAccounts = async () => {
+      try {
+        const accountListsRef = doc(db, "accountLists", "lists");
+        const snap = await getDoc(accountListsRef);
+        
+        if (snap.exists()) {
+          const data = snap.data();
+          setFundedAccounts(data.fundedAccounts || []);
+          setOwnAccounts(data.ownAccounts || []);
+          console.log("✓ Account lists loaded from Firebase");
+        } else {
+          // Initialize with default accounts if no data exists
+          const defaultFunded = ["GOLD1", "GOLD2", "SILVER/US30", "BTCUSD/US30", "GBPJPY"];
+          const defaultOwn = ["GOLD1", "GOLD2", "SILVER/US30", "GBPJPY"];
+          setFundedAccounts(defaultFunded);
+          setOwnAccounts(defaultOwn);
+          // Save defaults to Firebase
+          await setDoc(accountListsRef, {
+            fundedAccounts: defaultFunded,
+            ownAccounts: defaultOwn
+          });
+          console.log("✓ Default account lists created in Firebase");
+        }
+      } catch (error) {
+        console.error("Error loading account lists:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadAccounts();
+  }, []);
+  
+  // Save account lists to Firebase whenever they change
+  useEffect(() => {
+    if (!loading) {
+      const saveAccounts = async () => {
+        try {
+          const accountListsRef = doc(db, "accountLists", "lists");
+          await setDoc(accountListsRef, {
+            fundedAccounts,
+            ownAccounts
+          });
+          console.log("✓ Account lists saved to Firebase");
+        } catch (error) {
+          console.error("Error saving account lists:", error);
+        }
+      };
+      
+      saveAccounts();
+    }
+  }, [fundedAccounts, ownAccounts, loading]);
   
   const accounts = section === "Funded Accounts" ? fundedAccounts : ownAccounts;
   
