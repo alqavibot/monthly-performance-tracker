@@ -18,10 +18,18 @@ import {
   Card,
   CardContent,
   Divider,
+  Select,
+  MenuItem,
+  FormControl,
 } from "@mui/material";
 import DeleteIcon from "@mui/icons-material/Delete";
 import EditIcon from "@mui/icons-material/Edit";
 import NotificationsActiveIcon from "@mui/icons-material/NotificationsActive";
+import DownloadIcon from "@mui/icons-material/Download";
+import FormatBoldIcon from "@mui/icons-material/FormatBold";
+import SaveIcon from "@mui/icons-material/Save";
+import CancelIcon from "@mui/icons-material/Cancel";
+import * as XLSX from "xlsx";
 import { db } from "../App";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { v4 as uuidv4 } from "uuid";
@@ -32,10 +40,13 @@ import AchievementsPage from "./AchievementsPage";
 import TradingInsights from "./TradingInsights";
 import HistoricalComparison from "./HistoricalComparison";
 import CustomDashboard from "./CustomDashboard";
+import RiskManagement from "./RiskManagement";
+import DailyQuotesPage from "./DailyQuotesPage";
 import { useThemeMode } from "../ThemeContext";
 import Brightness4Icon from "@mui/icons-material/Brightness4";
 import Brightness7Icon from "@mui/icons-material/Brightness7";
 import DashboardIcon from "@mui/icons-material/Dashboard";
+import MenuBookIcon from "@mui/icons-material/MenuBook";
 
 // Helper: safe local file name for Electron
 function localFileName(key) {
@@ -45,7 +56,7 @@ function localFileName(key) {
 // Detect if Electron preload API is available
 const hasElectron = window?.electronAPI?.writeLocalFile;
 
-export default function AccountPage({ accountKey, columns }) {
+export default function AccountPage({ accountKey, columns, onRenameAccount }) {
   const { mode, toggleTheme } = useThemeMode();
   const [rows, setRows] = useState([]);
   const [openSnack, setOpenSnack] = useState(false);
@@ -61,6 +72,15 @@ export default function AccountPage({ accountKey, columns }) {
   const [analyticsTab, setAnalyticsTab] = useState(0); // 0 = Performance, 1 = Win Rate, 2 = Instruments, 3 = Insights, 4 = Historical
   const [achievementsDialogOpen, setAchievementsDialogOpen] = useState(false);
   const [dashboardDialogOpen, setDashboardDialogOpen] = useState(false);
+  const [riskManagementDialogOpen, setRiskManagementDialogOpen] = useState(false);
+  const [riskSettings, setRiskSettings] = useState({
+    initialCapital: 200,
+    currentCapital: 200,
+    baseTrades: 6,
+    milestoneCapital: 200,
+    tradesAtMilestone: 6,
+    riskPerTrade: 0
+  });
   
   // 📅 Monthly Rotation State
   const [currentMonthKey, setCurrentMonthKey] = useState(""); // e.g., "2025-10"
@@ -72,10 +92,130 @@ export default function AccountPage({ accountKey, columns }) {
   const [renameDialogOpen, setRenameDialogOpen] = useState(false);
   const [newAccountName, setNewAccountName] = useState("");
   
+  // 📋 Account Reasons State
+  const [accountReason, setAccountReason] = useState("");
+  const [multiInstrumentReason, setMultiInstrumentReason] = useState("");
+  const [editingAccountReason, setEditingAccountReason] = useState(false);
+  const [editingMultiReason, setEditingMultiReason] = useState(false);
+  const [tempAccountReason, setTempAccountReason] = useState("");
+  const [tempMultiReason, setTempMultiReason] = useState("");
+  const [accountReasonBold, setAccountReasonBold] = useState(false);
+  const [accountReasonSize, setAccountReasonSize] = useState(13);
+  const [multiReasonBold, setMultiReasonBold] = useState(false);
+  const [multiReasonSize, setMultiReasonSize] = useState(13);
+  
   // 📱 Mobile Features State
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
+  
+  // 💾 Smart Save - Track last saved data to prevent unnecessary saves
+  const [lastSavedData, setLastSavedData] = useState(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [quotesDialogOpen, setQuotesDialogOpen] = useState(false);
 
-  // Create one blank row template with auto-filled date
+  // Format text with HTML tags
+  const formatText = (text, bold, size) => {
+    if (!text) return "";
+    let formatted = text;
+    if (bold) {
+      formatted = `<strong>${formatted}</strong>`;
+    }
+    return `<span style="font-size: ${size}px;">${formatted}</span>`;
+  };
+
+  // Save edited account reason
+  const handleSaveAccountReason = async () => {
+    const formattedReason = formatText(tempAccountReason.trim(), accountReasonBold, accountReasonSize);
+    setAccountReason(formattedReason);
+    setEditingAccountReason(false);
+    
+    // Save to Firebase and local storage
+    const accountData = {
+      accountReason: formattedReason,
+      accountReasonPlain: tempAccountReason.trim(),
+      accountReasonFormat: { bold: accountReasonBold, size: accountReasonSize }
+    };
+    
+    try {
+      const ref = doc(db, "accounts", encodeURIComponent(accountKey));
+      const snap = await getDoc(ref);
+      const existingData = snap.exists() ? snap.data() : {};
+      await setDoc(ref, { ...existingData, ...accountData }, { merge: true });
+      
+      // Save to local storage too
+      if (hasElectron) {
+        const raw = window.electronAPI.readLocalFile(localFileName(accountKey));
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const updated = { ...parsed, ...accountData };
+          window.electronAPI.writeLocalFile(localFileName(accountKey), JSON.stringify(updated, null, 2));
+        }
+      } else {
+        const stored = localStorage.getItem(`account_${accountKey}`);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          const updated = { ...parsed, ...accountData };
+          localStorage.setItem(`account_${accountKey}`, JSON.stringify(updated));
+        }
+      }
+    } catch (error) {
+      console.error("Failed to save account reason:", error);
+    }
+  };
+
+  // Save edited multi-instrument reason
+  const handleSaveMultiReason = async () => {
+    const formattedReason = formatText(tempMultiReason.trim(), multiReasonBold, multiReasonSize);
+    setMultiInstrumentReason(formattedReason);
+    setEditingMultiReason(false);
+    
+    // Save to Firebase and local storage
+    const accountData = {
+      multiInstrumentReason: formattedReason,
+      multiInstrumentReasonPlain: tempMultiReason.trim(),
+      multiInstrumentReasonFormat: { bold: multiReasonBold, size: multiReasonSize }
+    };
+    
+    try {
+      const ref = doc(db, "accounts", encodeURIComponent(accountKey));
+      const snap = await getDoc(ref);
+      const existingData = snap.exists() ? snap.data() : {};
+      await setDoc(ref, { ...existingData, ...accountData }, { merge: true });
+      
+      // Save to local storage too
+      if (hasElectron) {
+        const raw = window.electronAPI.readLocalFile(localFileName(accountKey));
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const updated = { ...parsed, ...accountData };
+          window.electronAPI.writeLocalFile(localFileName(accountKey), JSON.stringify(updated, null, 2));
+        }
+      } else {
+        const stored = localStorage.getItem(`account_${accountKey}`);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          const updated = { ...parsed, ...accountData };
+          localStorage.setItem(`account_${accountKey}`, JSON.stringify(updated));
+        }
+      }
+    } catch (error) {
+      console.error("Failed to save multi-instrument reason:", error);
+    }
+  };
+
+  // Extract default instrument from account name (e.g., "GBPJPY" from "Funded Accounts/GBPJPY")
+  function getDefaultInstrument() {
+    const accountName = accountKey.split('/')[1] || '';
+    // Common instruments
+    const instruments = ['GBPJPY', 'GOLD', 'EURUSD', 'USDJPY', 'GBPUSD', 'XAUUSD', 'US30', 'NAS100'];
+    for (const instrument of instruments) {
+      if (accountName.toUpperCase().includes(instrument)) {
+        return instrument;
+      }
+    }
+    return accountName; // Fallback to account name
+  }
+
+  // Create one blank row template with auto-filled date and defaults
   function emptyRow() {
     const r = {};
     const now = new Date();
@@ -91,6 +231,8 @@ export default function AccountPage({ accountKey, columns }) {
     columns.forEach((c) => {
       if (c === "DATE/DAY") {
         r[c] = dateString;
+      } else if (c === "INTRUMENT") {
+        r[c] = getDefaultInstrument(); // Auto-fill default instrument
       } else {
         r[c] = "";
       }
@@ -212,8 +354,6 @@ export default function AccountPage({ accountKey, columns }) {
 
   // Perform monthly rotation
   function performMonthRotation(accountData) {
-    console.log("🔄 Performing monthly rotation...");
-    
     const newMonthKey = getMonthKey();
     
     // Step 1: If there's a "previous month", archive it
@@ -223,8 +363,6 @@ export default function AccountPage({ accountKey, columns }) {
         accountData.previousMonthData.monthKey,
         accountData.previousMonthData.expectedRisk
       );
-      
-      console.log(`📦 Archiving ${accountData.previousMonthData.monthKey}:`, summary);
       
       // Add to summaries
       accountData.monthlySummaries[accountData.previousMonthData.monthKey] = summary;
@@ -237,7 +375,6 @@ export default function AccountPage({ accountKey, columns }) {
         trades: [...accountData.rows],
         expectedRisk: accountData.expectedRisk
       };
-      console.log(`📋 Moved current month (${accountData.currentMonthKey}) to previous`);
     } else {
       accountData.previousMonthData = null;
     }
@@ -245,9 +382,6 @@ export default function AccountPage({ accountKey, columns }) {
     // Step 3: Start fresh current month
     accountData.currentMonthKey = newMonthKey;
     accountData.rows = [emptyRow()];
-    
-    console.log(`✨ Started new month: ${newMonthKey}`);
-    console.log(`📊 Total archived months: ${Object.keys(accountData.monthlySummaries).length}`);
     
     return accountData;
   }
@@ -268,10 +402,9 @@ export default function AccountPage({ accountKey, columns }) {
       // Create date at midnight (00:00:00) to avoid time-of-day issues
       const date = new Date(year, monthIndex, parseInt(day), 0, 0, 0, 0);
       return date;
-    } catch (err) {
-      console.warn("Failed to parse date:", dateString, err);
-      return null;
-    }
+      } catch (err) {
+        return null;
+      }
   }
 
   // Get start of current week (Sunday) at midnight
@@ -310,6 +443,77 @@ export default function AccountPage({ accountKey, columns }) {
     return { reason: sorted[0][0], count: sorted[0][1] };
   }
 
+  // Export trades to Excel
+  function exportTradesToExcel(trades, monthKey, accountName) {
+    if (!trades || trades.length === 0) {
+      alert("No trades to export");
+      return;
+    }
+
+    // Prepare data for Excel - filter out internal metadata fields
+    const excelData = trades.map(trade => {
+      const row = {};
+      // Export all columns that are in the columns array
+      columns.forEach(col => {
+        row[col] = trade[col] || "";
+      });
+      // Remove internal metadata fields (fields starting with _)
+      Object.keys(row).forEach(key => {
+        if (key.startsWith("_")) {
+          delete row[key];
+        }
+      });
+      return row;
+    });
+
+    // Create workbook and worksheet
+    const ws = XLSX.utils.json_to_sheet(excelData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Trades");
+
+    // Generate filename
+    const safeAccountName = accountName.replace(/[^a-zA-Z0-9]/g, "_");
+    const filename = `${safeAccountName}_${monthKey}_trades.xlsx`;
+
+    // Write file
+    XLSX.writeFile(wb, filename);
+  }
+
+  // Export summary to Excel (for archived months)
+  function exportSummaryToExcel(summary, monthKey, accountName) {
+    if (!summary) {
+      alert("No summary data to export");
+      return;
+    }
+
+    // Create summary data as an array
+    const summaryData = [
+      { Metric: "Month", Value: monthKey },
+      { Metric: "Total Trades", Value: summary.totalTrades },
+      { Metric: "Wins", Value: summary.wins },
+      { Metric: "Losses", Value: summary.losses },
+      { Metric: "Win Rate (%)", Value: summary.winRate },
+      { Metric: "Total Profit", Value: summary.totalProfit },
+      { Metric: "Average RR", Value: summary.avgRR },
+      { Metric: "Best Trade", Value: summary.bestTrade },
+      { Metric: "Worst Trade", Value: summary.worstTrade },
+      { Metric: "Expected Risk", Value: summary.expectedRisk || "Not Set" },
+      { Metric: "Archived On", Value: new Date(summary.createdAt).toLocaleDateString() }
+    ];
+
+    // Create workbook and worksheet
+    const ws = XLSX.utils.json_to_sheet(summaryData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Summary");
+
+    // Generate filename
+    const safeAccountName = accountName.replace(/[^a-zA-Z0-9]/g, "_");
+    const filename = `${safeAccountName}_${monthKey}_summary.xlsx`;
+
+    // Write file
+    XLSX.writeFile(wb, filename);
+  }
+
   // Get all weeks in current month
   function getWeeksInCurrentMonth() {
     const today = getTodayMidnight();
@@ -335,7 +539,6 @@ export default function AccountPage({ accountKey, columns }) {
       currentWeekStart.setDate(currentWeekStart.getDate() + 7);
     }
     
-    console.log(`Found ${weeks.length} weeks in current month:`, weeks.map(w => `${w.start.toDateString()} to ${w.end.toDateString()}`));
     return weeks;
   }
 
@@ -344,16 +547,9 @@ export default function AccountPage({ accountKey, columns }) {
     // Filter trades by date range
     const periodTrades = rows.filter(row => {
       const tradeDate = parseTradeDate(row["DATE/DAY"]);
-      if (!tradeDate) {
-        console.warn("Could not parse trade date:", row["DATE/DAY"]);
-        return false;
-      }
-      const inRange = tradeDate >= startDate && tradeDate <= endDate;
-      console.log(`Trade date: ${tradeDate.toDateString()}, Range: ${startDate.toDateString()} to ${endDate.toDateString()}, In range: ${inRange}`);
-      return inRange;
+      if (!tradeDate) return false;
+      return tradeDate >= startDate && tradeDate <= endDate;
     });
-    
-    console.log(`Filtered ${periodTrades.length} trades for range ${startDate.toDateString()} to ${endDate.toDateString()}`);
 
     // 1. Mismatched Instruments
     const mismatchedInstruments = periodTrades.filter(r => r._instrumentReason);
@@ -472,31 +668,38 @@ export default function AccountPage({ accountKey, columns }) {
 
   // Main analysis function - determines whether to use trade data or weekly aggregation
   function analyzeFeedback(period = "weekly") {
-    console.log(`Analyzing feedback for period: ${period}`);
-    console.log(`Total rows in table: ${rows.length}`);
-    
     if (period === "weekly") {
       // Weekly report: Analyze directly from trade table
       const today = getTodayMidnight();
       const weekStart = getWeekStart();
-      console.log(`Weekly analysis from ${weekStart.toDateString()} to ${today.toDateString()}`);
       return analyzeFromTrades(weekStart, today);
     } else {
       // Monthly report: Aggregate from weekly reports
-      console.log("Starting monthly analysis - aggregating weekly reports");
       const weeks = getWeeksInCurrentMonth();
       return aggregateWeeklyReports(weeks);
     }
   }
 
+
   // Load data on mount or account switch
   useEffect(() => {
     setLoaded(false); // Reset loaded state
     setExpectedRisk(""); // Reset expected risk for new account
+    
+    // Reset all account reason states when switching accounts
+    setAccountReason("");
+    setMultiInstrumentReason("");
+    setTempAccountReason("");
+    setTempMultiReason("");
+    setEditingAccountReason(false);
+    setEditingMultiReason(false);
+    setAccountReasonBold(false);
+    setAccountReasonSize(13);
+    setMultiReasonBold(false);
+    setMultiReasonSize(13);
+    
     async function load() {
       const key = accountKey;
-      console.log("Loading account:", key);
-      
       let accountData = null;
       
       // 1️⃣ Try local storage first (Electron or Browser)
@@ -504,7 +707,6 @@ export default function AccountPage({ accountKey, columns }) {
         const raw = window.electronAPI.readLocalFile(localFileName(key));
         if (raw) {
           const parsed = JSON.parse(raw);
-          console.log("Loaded from local cache:", parsed);
           accountData = parsed;
         }
       } else {
@@ -512,29 +714,43 @@ export default function AccountPage({ accountKey, columns }) {
         const stored = localStorage.getItem(`account_${key}`);
         if (stored) {
           const parsed = JSON.parse(stored);
-          console.log("Loaded from browser storage:", parsed);
           accountData = parsed;
         }
       }
 
-      // 2️⃣ Try Firebase (only if no local data)
-      if (!accountData) {
-        try {
-          const ref = doc(db, "accounts", encodeURIComponent(key));
-          const snap = await getDoc(ref);
-          if (snap.exists()) {
-            accountData = snap.data();
-            console.log("Loaded from Firebase:", accountData);
+      // 2️⃣ Try Firebase (for account reasons and full data if no local data)
+      let firebaseData = null;
+      try {
+        const ref = doc(db, "accounts", encodeURIComponent(key));
+        const snap = await getDoc(ref);
+        if (snap.exists()) {
+          firebaseData = snap.data();
+          
+          // If no local data, use Firebase data (create a copy to avoid mutation)
+          if (!accountData) {
+            accountData = { ...firebaseData };
+          } else {
+            // Merge Firebase account reasons into local data (if not present locally)
+            // IMPORTANT: Only merge data that belongs to this account
+            if (!accountData.accountReason && firebaseData.accountReason) {
+              accountData.accountReason = firebaseData.accountReason;
+              accountData.accountReasonPlain = firebaseData.accountReasonPlain;
+              accountData.accountReasonFormat = firebaseData.accountReasonFormat;
+            }
+            if (!accountData.multiInstrumentReason && firebaseData.multiInstrumentReason) {
+              accountData.multiInstrumentReason = firebaseData.multiInstrumentReason;
+              accountData.multiInstrumentReasonPlain = firebaseData.multiInstrumentReasonPlain;
+              accountData.multiInstrumentReasonFormat = firebaseData.multiInstrumentReasonFormat;
+            }
           }
-        } catch (err) {
-          console.warn("Firebase load failed (using local-only mode):", err.message);
         }
+      } catch (err) {
+        console.error("Firebase load failed:", err.message);
       }
 
       // 3️⃣ Process loaded data
       if (!accountData) {
         // No data found - start fresh
-        console.log("No existing data, starting fresh");
         const newMonthKey = getMonthKey();
         setCurrentMonthKey(newMonthKey);
         setRows([emptyRow()]);
@@ -545,30 +761,83 @@ export default function AccountPage({ accountKey, columns }) {
         // Handle different data formats
         if (Array.isArray(accountData)) {
           // Old format: just rows array - migrate to new structure
-          console.log("Migrating old format to new structure");
           const newMonthKey = getMonthKey();
           setCurrentMonthKey(newMonthKey);
           setRows(accountData);
           setExpectedRisk("");
           setPreviousMonthData(null);
           setMonthlySummaries({});
+          
+          // Load account reasons from Firebase if available (accountData might have been merged above)
+          // But we need to check firebaseData if it exists - make sure it's for the correct account
+          if (firebaseData && firebaseData.accountReason) {
+            setAccountReason(firebaseData.accountReason);
+            if (firebaseData.accountReasonFormat) {
+              setAccountReasonBold(firebaseData.accountReasonFormat.bold || false);
+              setAccountReasonSize(firebaseData.accountReasonFormat.size || 13);
+            }
+            if (firebaseData.accountReasonPlain) {
+              setTempAccountReason(firebaseData.accountReasonPlain);
+            } else {
+              const plainText = firebaseData.accountReason.replace(/<[^>]*>/g, '');
+              setTempAccountReason(plainText);
+            }
+          }
+          if (firebaseData && firebaseData.multiInstrumentReason) {
+            setMultiInstrumentReason(firebaseData.multiInstrumentReason);
+            if (firebaseData.multiInstrumentReasonFormat) {
+              setMultiReasonBold(firebaseData.multiInstrumentReasonFormat.bold || false);
+              setMultiReasonSize(firebaseData.multiInstrumentReasonFormat.size || 13);
+            }
+            if (firebaseData.multiInstrumentReasonPlain) {
+              setTempMultiReason(firebaseData.multiInstrumentReasonPlain);
+            } else {
+              const plainText = firebaseData.multiInstrumentReason.replace(/<[^>]*>/g, '');
+              setTempMultiReason(plainText);
+            }
+          }
         } else if (accountData.rows && !accountData.currentMonthKey) {
           // Intermediate format: has rows and expectedRisk but no month tracking
-          console.log("Migrating intermediate format to monthly tracking");
           const newMonthKey = getMonthKey();
           setCurrentMonthKey(newMonthKey);
           setRows(accountData.rows || [emptyRow()]);
           setExpectedRisk(accountData.expectedRisk || "");
           setPreviousMonthData(null);
           setMonthlySummaries({});
+          
+          // Load account reasons if available (with formatting)
+          if (accountData.accountReason) {
+            setAccountReason(accountData.accountReason);
+            if (accountData.accountReasonFormat) {
+              setAccountReasonBold(accountData.accountReasonFormat.bold || false);
+              setAccountReasonSize(accountData.accountReasonFormat.size || 13);
+            }
+            if (accountData.accountReasonPlain) {
+              setTempAccountReason(accountData.accountReasonPlain);
+            } else {
+              const plainText = accountData.accountReason.replace(/<[^>]*>/g, '');
+              setTempAccountReason(plainText);
+            }
+          }
+          if (accountData.multiInstrumentReason) {
+            setMultiInstrumentReason(accountData.multiInstrumentReason);
+            if (accountData.multiInstrumentReasonFormat) {
+              setMultiReasonBold(accountData.multiInstrumentReasonFormat.bold || false);
+              setMultiReasonSize(accountData.multiInstrumentReasonFormat.size || 13);
+            }
+            if (accountData.multiInstrumentReasonPlain) {
+              setTempMultiReason(accountData.multiInstrumentReasonPlain);
+            } else {
+              const plainText = accountData.multiInstrumentReason.replace(/<[^>]*>/g, '');
+              setTempMultiReason(plainText);
+            }
+          }
         } else {
           // New format with monthly tracking
-          console.log("Loading full monthly tracking data");
           const newMonthKey = getMonthKey();
           
           // Check if month changed - perform rotation if needed
           if (accountData.currentMonthKey && accountData.currentMonthKey !== newMonthKey) {
-            console.log(`🔄 Month changed from ${accountData.currentMonthKey} to ${newMonthKey}`);
             accountData = performMonthRotation({
               currentMonthKey: accountData.currentMonthKey,
               rows: accountData.rows || [],
@@ -584,13 +853,123 @@ export default function AccountPage({ accountKey, columns }) {
           setExpectedRisk(accountData.expectedRisk || "");
           setPreviousMonthData(accountData.previousMonthData || null);
           setMonthlySummaries(accountData.monthlySummaries || {});
+          
+          // Load risk settings if available
+          if (accountData.riskSettings) {
+            setRiskSettings(accountData.riskSettings);
+          }
+          
+          // Load account reasons if available (with formatting)
+          if (accountData.accountReason) {
+            setAccountReason(accountData.accountReason);
+            // Load formatting if available
+            if (accountData.accountReasonFormat) {
+              setAccountReasonBold(accountData.accountReasonFormat.bold || false);
+              setAccountReasonSize(accountData.accountReasonFormat.size || 13);
+            }
+            // Load plain text if available (for editing)
+            if (accountData.accountReasonPlain) {
+              setTempAccountReason(accountData.accountReasonPlain);
+            } else {
+              // Extract plain text from HTML if needed
+              const plainText = accountData.accountReason.replace(/<[^>]*>/g, '');
+              setTempAccountReason(plainText);
+            }
+          }
+          if (accountData.multiInstrumentReason) {
+            setMultiInstrumentReason(accountData.multiInstrumentReason);
+            // Load formatting if available
+            if (accountData.multiInstrumentReasonFormat) {
+              setMultiReasonBold(accountData.multiInstrumentReasonFormat.bold || false);
+              setMultiReasonSize(accountData.multiInstrumentReasonFormat.size || 13);
+            }
+            // Load plain text if available (for editing)
+            if (accountData.multiInstrumentReasonPlain) {
+              setTempMultiReason(accountData.multiInstrumentReasonPlain);
+            } else {
+              // Extract plain text from HTML if needed
+              const plainText = accountData.multiInstrumentReason.replace(/<[^>]*>/g, '');
+              setTempMultiReason(plainText);
+            }
+          }
         }
       }
+      
+      // Set initial lastSavedData to current state after loading
+      // This needs to be done after a short delay to ensure all state is set
+      setTimeout(() => {
+        const initialData = {
+          currentMonthKey: accountData?.currentMonthKey || getMonthKey(),
+          rows: accountData?.rows || [emptyRow()],
+          expectedRisk: accountData?.expectedRisk || "",
+          previousMonthData: accountData?.previousMonthData || null,
+          monthlySummaries: accountData?.monthlySummaries || {}
+        };
+        setLastSavedData(initialData);
+        setHasUnsavedChanges(false);
+      }, 100);
       
       setLoaded(true);
     }
     load();
   }, [accountKey]);
+
+  // Auto-calculate currentCapital from P/L
+  useEffect(() => {
+    if (!loaded || rows.length === 0) return;
+    
+    // Calculate total P/L from all trades
+    const totalPL = rows.reduce((sum, row) => {
+      const plValue = parseFloat(row["P/L"]);
+      return sum + (isNaN(plValue) ? 0 : plValue);
+    }, 0);
+    
+    // Update currentCapital: initialCapital + total P/L
+    const newCurrentCapital = riskSettings.initialCapital + totalPL;
+    
+    // Only update if different to avoid infinite loops
+    if (Math.abs(newCurrentCapital - riskSettings.currentCapital) > 0.01) {
+      setRiskSettings(prev => ({
+        ...prev,
+        currentCapital: newCurrentCapital
+      }));
+    }
+  }, [rows, loaded, riskSettings.initialCapital]);
+
+  // Sync Risk Per Trade to Expected Risk field
+  // This effect updates expectedRisk when riskPerTrade is calculated in Risk Management
+  useEffect(() => {
+    if (!loaded) return;
+    
+    // Only sync if riskPerTrade has a valid value
+    if (riskSettings.riskPerTrade && riskSettings.riskPerTrade > 0) {
+      // Format riskPerTrade to a readable number (round to 2 decimal places, remove trailing zeros)
+      const formattedRisk = parseFloat(riskSettings.riskPerTrade.toFixed(2)).toString();
+      const riskPerTradeValue = parseFloat(formattedRisk);
+      
+      // Update expectedRisk using callback to get current value and avoid stale closure
+      setExpectedRisk(prev => {
+        // If empty, always update
+        if (!prev || prev.trim() === "") {
+          return formattedRisk;
+        }
+        
+        // Check if current value is significantly different from calculated value
+        const prevValue = parseFloat(prev);
+        if (isNaN(prevValue)) {
+          return formattedRisk; // Invalid current value, update it
+        }
+        
+        // If values are very close (within 0.01), keep current (might be manual edit)
+        // Otherwise, update with calculated value
+        if (Math.abs(prevValue - riskPerTradeValue) > 0.01) {
+          return formattedRisk;
+        }
+        
+        return prev; // Keep current value if very close
+      });
+    }
+  }, [riskSettings.riskPerTrade, loaded]);
 
   // Auto-save to LOCAL STORAGE ONLY (not Firebase)
   useEffect(() => {
@@ -603,33 +982,34 @@ export default function AccountPage({ accountKey, columns }) {
         rows,
         expectedRisk,
         previousMonthData,
-        monthlySummaries
+        monthlySummaries,
+        riskSettings,
+        accountReason,
+        multiInstrumentReason
       };
       
       // Save locally ONLY (if Electron)
     if (hasElectron) {
         try {
-      window.electronAPI.writeLocalFile(
-        localFileName(key),
-        JSON.stringify(dataToSave, null, 2)
-      );
-          console.log("✓ Auto-saved to local storage");
+          window.electronAPI.writeLocalFile(
+            localFileName(key),
+            JSON.stringify(dataToSave, null, 2)
+          );
         } catch (err) {
-          console.warn("Local save failed:", err);
+          console.error("Local save failed:", err);
         }
       } else {
         // For web version, save to localStorage
         try {
           localStorage.setItem(`account_${key}`, JSON.stringify(dataToSave));
-          console.log("✓ Auto-saved to browser storage");
         } catch (err) {
-          console.warn("Browser storage failed:", err);
+          console.error("Browser storage failed:", err);
         }
       }
     }, 500); // Fast local save
 
     return () => clearTimeout(timer);
-  }, [rows, expectedRisk, currentMonthKey, previousMonthData, monthlySummaries, loaded, accountKey]);
+  }, [rows, expectedRisk, currentMonthKey, previousMonthData, monthlySummaries, riskSettings, accountReason, multiInstrumentReason, loaded, accountKey]);
 
   // Check if instrument matches account name (supports multiple instruments)
   const checkInstrumentMatch = (instrument) => {
@@ -641,46 +1021,37 @@ export default function AccountPage({ accountKey, columns }) {
     
     if (!instrumentUpper) return false;
     
-    console.log("Full account name:", accountName);
-    console.log("Checking instrument:", instrumentUpper);
-    
     // Split account name by "/" to get multiple instruments
     const accountInstruments = accountName.split("/").map(i => i.trim());
-    console.log("Account instruments:", accountInstruments);
     
     // Check each instrument in the account name
     for (const accountInst of accountInstruments) {
       // Exact match
       if (instrumentUpper === accountInst) {
-        console.log("✓ Exact match found:", instrumentUpper, "===", accountInst);
         return true;
       }
       
       // Contains match (either direction)
       if (instrumentUpper.includes(accountInst) || accountInst.includes(instrumentUpper)) {
-        console.log("✓ Contains match found:", instrumentUpper, "<->", accountInst);
         return true;
       }
       
       // Special case: BTC matches BTCUSD
       if (accountInst.includes("BTCUSD") && instrumentUpper.includes("BTC")) {
-        console.log("✓ BTC/BTCUSD match found");
         return true;
       }
     }
     
-    console.log("✗ No match found");
     return false;
   };
 
   const updateCell = (id, col, val) => {
-    console.log(`Updating cell - ID: ${id}, Column: ${col}, Value: ${val}`);
-    
     setRows((prev) => {
-      const updated = prev.map((r) => (r._id === id ? { ...r, [col]: val } : r));
-      console.log("Updated rows:", updated);
-      return updated;
+      return prev.map((r) => (r._id === id ? { ...r, [col]: val } : r));
     });
+    
+    // Mark as having unsaved changes
+    setHasUnsavedChanges(true);
   };
   
   // Validate instrument when user finishes typing (on blur)
@@ -721,6 +1092,44 @@ export default function AccountPage({ accountKey, columns }) {
     }
   };
   
+  // Handle account rename
+  const handleRename = async () => {
+    const oldAccountName = accountKey.split("/")[1];
+    const newAccountNameValue = newAccountName.trim();
+    
+    if (!newAccountNameValue || newAccountNameValue === oldAccountName) {
+      return;
+    }
+    
+    if (!onRenameAccount) {
+      console.error("onRenameAccount callback not provided");
+      return;
+    }
+    
+    // Show loading state
+    setSaving(true);
+    
+    try {
+      const success = await onRenameAccount(oldAccountName, newAccountNameValue);
+      
+      if (success) {
+        // Close dialog and reset
+        setRenameDialogOpen(false);
+        setNewAccountName("");
+        setOpenSnack(true);
+        
+        // The accountKey will update automatically via Dashboard's activeAccount update
+        // But we need to reload the page data with the new account name
+        // This is handled by the useEffect that depends on accountKey
+      }
+    } catch (error) {
+      console.error("Rename error:", error);
+      alert(`Failed to rename account: ${error.message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   // Validate calculated risk against expected risk
   const validateCalculatedRisk = (id, value) => {
     const trimmedValue = value.trim();
@@ -819,8 +1228,6 @@ export default function AccountPage({ accountKey, columns }) {
     
     // Immediately sync new row to cloud with full monthly data
     const key = accountKey;
-    console.log("Adding new row, syncing to cloud...");
-    
     const dataToSave = {
       currentMonthKey,
       rows: updatedRows,
@@ -831,10 +1238,12 @@ export default function AccountPage({ accountKey, columns }) {
     
     setDoc(doc(db, "accounts", encodeURIComponent(key)), dataToSave, { merge: true })
       .then(() => {
-        console.log("✓ New row synced to cloud");
+        // Update last saved data since we just saved
+        setLastSavedData(dataToSave);
+        setHasUnsavedChanges(false);
       })
       .catch((err) => {
-        console.warn("Failed to sync new row to cloud:", err.message);
+        console.error("Failed to sync new row to cloud:", err.message);
       });
   };
   
@@ -844,8 +1253,6 @@ export default function AccountPage({ accountKey, columns }) {
     
     // Immediately sync deletion to cloud with full monthly data
     const key = accountKey;
-    console.log("Deleting row, syncing to cloud...");
-    
     const dataToSave = {
       currentMonthKey,
       rows: updatedRows,
@@ -856,10 +1263,12 @@ export default function AccountPage({ accountKey, columns }) {
     
     setDoc(doc(db, "accounts", encodeURIComponent(key)), dataToSave, { merge: true })
       .then(() => {
-        console.log("✓ Deletion synced to cloud");
+        // Update last saved data since we just saved
+        setLastSavedData(dataToSave);
+        setHasUnsavedChanges(false);
       })
       .catch((err) => {
-        console.warn("Failed to sync deletion to cloud:", err.message);
+        console.error("Failed to sync deletion to cloud:", err.message);
       });
   };
 
@@ -883,8 +1292,10 @@ export default function AccountPage({ accountKey, columns }) {
           borderColor: "divider",
         }}
       >
-        <Stack direction="row" alignItems="center" justifyContent="space-between">
-          <Box>
+        {/* Header Layout: Top section with account name and buttons side-by-side */}
+        <Stack direction={{ xs: "column", md: "row" }} spacing={2} alignItems={{ xs: "flex-start", md: "flex-start" }} justifyContent="space-between">
+          {/* Left: Account Name and Reasons */}
+          <Box sx={{ flex: { xs: "1 1 auto", md: "1 1 50%" }, minWidth: 0 }}>
             <Stack direction="row" alignItems="center" spacing={2}>
               <Stack direction="row" alignItems="center" spacing={1}>
                 <Typography 
@@ -942,11 +1353,224 @@ export default function AccountPage({ accountKey, columns }) {
             </Stack>
             <Typography variant="body2" sx={{ color: "text.secondary", mt: 0.5 }}>
               {accountKey.split("/")[0]} • {rows.length} {rows.length === 1 ? "trade" : "trades"}
-      </Typography>
+            </Typography>
+            {/* Account Reasons Display - Always visible if loaded */}
+            {loaded && (accountReason || multiInstrumentReason) && (
+              <Box sx={{ mt: 1.5, mb: { xs: 1, md: 0 }, maxWidth: { xs: "100%", sm: 480, md: 520 }, width: "100%" }}>
+                <Stack spacing={0.75}>
+                  {accountReason && (
+                    <Box>
+                      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.25 }}>
+                        <Typography variant="caption" sx={{ fontWeight: 500, color: "text.secondary", fontSize: 10, display: "block" }}>
+                          📋 Instrument Reason:
+                        </Typography>
+                        {!editingAccountReason ? (
+                          <IconButton
+                            size="small"
+                            onClick={() => {
+                              setEditingAccountReason(true);
+                              if (!tempAccountReason) {
+                                const plainText = accountReason.replace(/<[^>]*>/g, '');
+                                setTempAccountReason(plainText);
+                              }
+                            }}
+                            sx={{ p: 0.5, color: "text.secondary" }}
+                            title="Edit"
+                          >
+                            <EditIcon sx={{ fontSize: 14 }} />
+                          </IconButton>
+                        ) : (
+                          <Stack direction="row" spacing={0.5}>
+                            <IconButton
+                              size="small"
+                              onClick={handleSaveAccountReason}
+                              sx={{ p: 0.5, color: "success.main" }}
+                              title="Save"
+                            >
+                              <SaveIcon sx={{ fontSize: 14 }} />
+                            </IconButton>
+                            <IconButton
+                              size="small"
+                            onClick={() => {
+                              setEditingAccountReason(false);
+                              // Restore original by extracting plain text from current formatted reason
+                              const plainText = accountReason.replace(/<[^>]*>/g, '');
+                              setTempAccountReason(plainText);
+                            }}
+                              sx={{ p: 0.5, color: "error.main" }}
+                              title="Cancel"
+                            >
+                              <CancelIcon sx={{ fontSize: 14 }} />
+                            </IconButton>
+                          </Stack>
+                        )}
+                      </Box>
+                      {editingAccountReason ? (
+                        <Box>
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
+                            <IconButton
+                              size="small"
+                              onClick={() => setAccountReasonBold(!accountReasonBold)}
+                              sx={{
+                                bgcolor: accountReasonBold ? "rgba(99, 102, 241, 0.1)" : "transparent",
+                                color: accountReasonBold ? "#6366f1" : "text.secondary",
+                                p: 0.5
+                              }}
+                              title="Bold"
+                            >
+                              <FormatBoldIcon sx={{ fontSize: 14 }} />
+                            </IconButton>
+                            <Select
+                              size="small"
+                              value={accountReasonSize}
+                              onChange={(e) => setAccountReasonSize(e.target.value)}
+                              sx={{ minWidth: 70, height: 28 }}
+                            >
+                              <MenuItem value={11}>11px</MenuItem>
+                              <MenuItem value={12}>12px</MenuItem>
+                              <MenuItem value={13}>13px</MenuItem>
+                              <MenuItem value={14}>14px</MenuItem>
+                              <MenuItem value={15}>15px</MenuItem>
+                              <MenuItem value={16}>16px</MenuItem>
+                            </Select>
+                          </Box>
+                          <TextField
+                            fullWidth
+                            multiline
+                            rows={2}
+                            value={tempAccountReason}
+                            onChange={(e) => setTempAccountReason(e.target.value)}
+                            variant="outlined"
+                            size="small"
+                            sx={{ mb: 0.5 }}
+                          />
+                        </Box>
+                      ) : (
+                        <Typography 
+                          variant="body2" 
+                          sx={{ 
+                            color: "text.primary", 
+                            lineHeight: 1.4,
+                            wordBreak: "break-word",
+                            overflowWrap: "break-word",
+                            fontSize: "0.875rem",
+                            maxWidth: "100%"
+                          }}
+                          dangerouslySetInnerHTML={{ __html: accountReason || "" }}
+                        />
+                      )}
+                    </Box>
+                  )}
+                  {multiInstrumentReason && (
+                    <Box sx={{ mt: 0.5 }}>
+                      <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 0.25 }}>
+                        <Typography variant="caption" sx={{ fontWeight: 500, color: "text.secondary", fontSize: 10, display: "block" }}>
+                          🔀 Multiple Instruments Reason:
+                        </Typography>
+                        {!editingMultiReason ? (
+                          <IconButton
+                            size="small"
+                            onClick={() => {
+                              setEditingMultiReason(true);
+                              if (!tempMultiReason) {
+                                const plainText = multiInstrumentReason.replace(/<[^>]*>/g, '');
+                                setTempMultiReason(plainText);
+                              }
+                            }}
+                            sx={{ p: 0.5, color: "text.secondary" }}
+                            title="Edit"
+                          >
+                            <EditIcon sx={{ fontSize: 14 }} />
+                          </IconButton>
+                        ) : (
+                          <Stack direction="row" spacing={0.5}>
+                            <IconButton
+                              size="small"
+                              onClick={handleSaveMultiReason}
+                              sx={{ p: 0.5, color: "success.main" }}
+                              title="Save"
+                            >
+                              <SaveIcon sx={{ fontSize: 14 }} />
+                            </IconButton>
+                            <IconButton
+                              size="small"
+                              onClick={() => {
+                                setEditingMultiReason(false);
+                                // Restore original by extracting plain text from current formatted reason
+                                const plainText = multiInstrumentReason.replace(/<[^>]*>/g, '');
+                                setTempMultiReason(plainText);
+                              }}
+                              sx={{ p: 0.5, color: "error.main" }}
+                              title="Cancel"
+                            >
+                              <CancelIcon sx={{ fontSize: 14 }} />
+                            </IconButton>
+                          </Stack>
+                        )}
+                      </Box>
+                      {editingMultiReason ? (
+                        <Box>
+                          <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
+                            <IconButton
+                              size="small"
+                              onClick={() => setMultiReasonBold(!multiReasonBold)}
+                              sx={{
+                                bgcolor: multiReasonBold ? "rgba(99, 102, 241, 0.1)" : "transparent",
+                                color: multiReasonBold ? "#6366f1" : "text.secondary",
+                                p: 0.5
+                              }}
+                              title="Bold"
+                            >
+                              <FormatBoldIcon sx={{ fontSize: 14 }} />
+                            </IconButton>
+                            <Select
+                              size="small"
+                              value={multiReasonSize}
+                              onChange={(e) => setMultiReasonSize(e.target.value)}
+                              sx={{ minWidth: 70, height: 28 }}
+                            >
+                              <MenuItem value={11}>11px</MenuItem>
+                              <MenuItem value={12}>12px</MenuItem>
+                              <MenuItem value={13}>13px</MenuItem>
+                              <MenuItem value={14}>14px</MenuItem>
+                              <MenuItem value={15}>15px</MenuItem>
+                              <MenuItem value={16}>16px</MenuItem>
+                            </Select>
+                          </Box>
+                          <TextField
+                            fullWidth
+                            multiline
+                            rows={2}
+                            value={tempMultiReason}
+                            onChange={(e) => setTempMultiReason(e.target.value)}
+                            variant="outlined"
+                            size="small"
+                            sx={{ mb: 0.5 }}
+                          />
+                        </Box>
+                      ) : (
+                        <Typography 
+                          variant="body2" 
+                          sx={{ 
+                            color: "text.primary", 
+                            lineHeight: 1.4,
+                            wordBreak: "break-word",
+                            overflowWrap: "break-word",
+                            fontSize: "0.875rem",
+                            maxWidth: "100%"
+                          }}
+                          dangerouslySetInnerHTML={{ __html: multiInstrumentReason || "" }}
+                        />
+                      )}
+                    </Box>
+                  )}
+                </Stack>
+              </Box>
+            )}
           </Box>
-          {/* Two Row Layout for Buttons - Mobile Responsive */}
-          <Stack spacing={1.5} sx={{ width: { xs: "100%", md: "auto" } }}>
-            {/* Row 1: Primary Actions */}
+          {/* Right: Action Buttons - Two Lines Only */}
+          <Stack spacing={1.5} sx={{ width: { xs: "100%", md: "auto" }, flexShrink: 0, ml: { xs: 0, md: 2 } }}>
+            {/* Line 1: Primary Actions */}
             <Stack 
               direction="row" 
               spacing={1} 
@@ -1000,17 +1624,15 @@ export default function AccountPage({ accountKey, columns }) {
                   flex: { xs: "1 1 auto", sm: "0 0 auto" }, // Grow on mobile
                 }}
               >
-            + Add Trade
-          </Button>
-        <Button
+                + Add Trade
+              </Button>
+              <Button
           variant="contained"
           color="primary"
           onClick={() => {
-                // Save to Firebase Cloud with full monthly data
+                // Smart Save - Check if data actually changed
                 const key = accountKey;
-                setSaving(true);
-                console.log("Manual cloud save - Rows:", rows);
-                const dataToSave = {
+                const currentData = {
                   currentMonthKey,
                   rows,
                   expectedRisk,
@@ -1018,19 +1640,36 @@ export default function AccountPage({ accountKey, columns }) {
                   monthlySummaries
                 };
                 
-                setDoc(doc(db, "accounts", encodeURIComponent(key)), dataToSave, { merge: true })
+                // Compare with last saved data
+                const currentDataString = JSON.stringify(currentData);
+                const lastSavedDataString = JSON.stringify(lastSavedData);
+                
+                if (lastSavedDataString && currentDataString === lastSavedDataString) {
+                  // No changes detected
+                  alert("✅ No changes detected!\n\nAll data is already saved to cloud.");
+                  return;
+                }
+                
+                // Changes detected - proceed with save
+                setSaving(true);
+                
+                setDoc(doc(db, "accounts", encodeURIComponent(key)), currentData, { merge: true })
                   .then(() => {
                     // Also save locally
             if (hasElectron) {
               window.electronAPI.writeLocalFile(
                         localFileName(key),
-                        JSON.stringify(dataToSave, null, 2)
+                        JSON.stringify(currentData, null, 2)
                       );
                     } else {
-                      localStorage.setItem(`account_${key}`, JSON.stringify(dataToSave));
+                      localStorage.setItem(`account_${key}`, JSON.stringify(currentData));
                     }
+                    
+                    // Update last saved data and reset dirty flag
+                    setLastSavedData(currentData);
+                    setHasUnsavedChanges(false);
+                    
                     setSaving(false);
-                    console.log("✓ Cloud save successful");
                     setOpenSnack(true);
                   })
                   .catch((err) => {
@@ -1039,14 +1678,8 @@ export default function AccountPage({ accountKey, columns }) {
                     
                     // Show friendly error message
                     if (err.code === 'permission-denied') {
-                      alert("⚠️ Cloud sync is disabled.\n\nYour data is safely saved locally on your computer.\n\nTo enable cloud sync:\n1. Go to Firebase Console\n2. Update Firestore Rules\n3. See console for instructions");
-                      console.log("%c📝 TO ENABLE CLOUD SYNC:", "color: #6366f1; font-size: 16px; font-weight: bold");
-                      console.log("1. Go to: https://console.firebase.com/");
-                      console.log("2. Select your project: monthly-performance-tracker");
-                      console.log("3. Click 'Firestore Database' → 'Rules'");
-                      console.log("4. Replace rules with:\n\nrules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /{document=**} {\n      allow read, write: if true;\n    }\n  }\n}");
-                      console.log("5. Click 'Publish'");
-            } else {
+                      alert("⚠️ Cloud sync is disabled.\n\nYour data is safely saved locally on your computer.\n\nTo enable cloud sync:\n1. Go to Firebase Console\n2. Update Firestore Rules");
+                    } else {
                       alert("Failed to save to cloud. Data is saved locally.\n\nError: " + err.message);
                     }
                   });
@@ -1129,7 +1762,7 @@ export default function AccountPage({ accountKey, columns }) {
             </Button>
             </Stack>
 
-            {/* Row 2: Analytics & Tools */}
+            {/* Line 2: All Other Buttons */}
             <Stack 
               direction="row" 
               spacing={1} 
@@ -1221,6 +1854,24 @@ export default function AccountPage({ accountKey, columns }) {
               >
                 🏆 Achievements
               </Button>
+              <Button
+                variant="contained"
+                onClick={() => setRiskManagementDialogOpen(true)}
+                sx={{
+                  px: 2,
+                  py: 0.75,
+                  fontSize: 12,
+                  fontWeight: 500,
+                  minWidth: "auto",
+                  bgcolor: "#7f1d1d",
+                  color: "#ffffff",
+                  "&:hover": {
+                    bgcolor: "#991b1b",
+                  },
+                }}
+              >
+                ⚖️ Risk Management
+              </Button>
               
               {/* Notifications Toggle */}
               <Tooltip title={notificationsEnabled ? "Disable Notifications" : "Enable Notifications"}>
@@ -1267,6 +1918,22 @@ export default function AccountPage({ accountKey, columns }) {
                   size="small"
                 >
                   {mode === "dark" ? <Brightness7Icon /> : <Brightness4Icon />}
+                </IconButton>
+              </Tooltip>
+              <Tooltip title="Daily Quotes & Motivation">
+                <IconButton
+                  onClick={() => setQuotesDialogOpen(true)}
+                  sx={{
+                    color: "#6366f1",
+                    border: "1px solid",
+                    borderColor: "#6366f1",
+                    "&:hover": {
+                      bgcolor: "rgba(99, 102, 241, 0.1)",
+                    }
+                  }}
+                  size="small"
+                >
+                  <MenuBookIcon />
                 </IconButton>
               </Tooltip>
             </Stack>
@@ -1972,13 +2639,7 @@ export default function AccountPage({ accountKey, columns }) {
                     size="small"
                     sx={{
                       "& .MuiInputBase-root": {
-                        backgroundColor: (() => {
-                          const val = parseFloat(r[c]);
-                          if (isNaN(val) || val === 0) return mode === "dark" ? "#1e293b" : "#ffffff";
-                          return val > 0 
-                            ? (mode === "dark" ? "rgba(16, 185, 129, 0.15)" : "rgba(16, 185, 129, 0.08)")
-                            : (mode === "dark" ? "rgba(239, 68, 68, 0.15)" : "rgba(239, 68, 68, 0.08)");
-                        })(),
+                        backgroundColor: mode === "dark" ? "#1e293b" : "#ffffff", // Always white background
                         borderRadius: 0,
                         height: "32px",
                         transition: "all 0.2s ease",
@@ -1988,10 +2649,10 @@ export default function AccountPage({ accountKey, columns }) {
                         color: (() => {
                           const val = parseFloat(r[c]);
                           if (isNaN(val) || val === 0) return mode === "dark" ? "#f1f5f9" : "#1f2937";
-                          return val > 0 ? "#10b981" : "#ef4444";
+                          return val > 0 ? "#10b981" : "#ef4444"; // Green for profit, Red for loss
                         })(),
-                        fontWeight: 600,
-                        fontSize: 13,
+                        fontWeight: 700, // Bold for visibility
+                        fontSize: 14,
                         padding: "6px 8px",
                         transition: "color 0.2s ease",
                       },
@@ -2015,6 +2676,101 @@ export default function AccountPage({ accountKey, columns }) {
                       },
                     }}
                   />
+                ) : c === "TRADE" ? (
+                  <FormControl fullWidth size="small">
+                    <Select
+                      value={r[c] || ""}
+                      onChange={(e) => updateCell(r._id, c, e.target.value)}
+                      variant="outlined"
+                      displayEmpty
+                      sx={{
+                        borderRadius: 0,
+                        height: "32px",
+                        "& .MuiSelect-select": {
+                          padding: "6px 8px",
+                          textAlign: "center",
+                          fontWeight: 600,
+                          fontSize: 12,
+                          color: r[c] === "BUY" ? "#10b981" : r[c] === "SELL" ? "#ef4444" : "#6b7280",
+                        },
+                        "& fieldset": {
+                          borderColor: "#d1d5db",
+                        },
+                      }}
+                    >
+                      <MenuItem value=""><em>Select...</em></MenuItem>
+                      <MenuItem value="BUY">BUY</MenuItem>
+                      <MenuItem value="SELL">SELL</MenuItem>
+                    </Select>
+                  </FormControl>
+                ) : c === "OVER RISKED ?" ? (
+                  <FormControl fullWidth size="small">
+                    <Select
+                      value={r[c] || ""}
+                      onChange={(e) => {
+                        const newValue = e.target.value;
+                        updateCell(r._id, c, newValue);
+                        if (newValue === "YES") {
+                          validateOverRisk(r._id, newValue);
+                        }
+                      }}
+                      variant="outlined"
+                      displayEmpty
+                      sx={{
+                        borderRadius: 0,
+                        height: "32px",
+                        backgroundColor: r[c] === "YES" ? "rgba(239, 68, 68, 0.1)" : "transparent",
+                        "& .MuiSelect-select": {
+                          padding: "6px 8px",
+                          textAlign: "center",
+                          fontWeight: 600,
+                          fontSize: 12,
+                          color: r[c] === "YES" ? "#ef4444" : r[c] === "NO" ? "#10b981" : "#6b7280",
+                        },
+                        "& fieldset": {
+                          borderColor: r[c] === "YES" ? "rgba(239, 68, 68, 0.5)" : "#d1d5db",
+                        },
+                      }}
+                    >
+                      <MenuItem value=""><em>Select...</em></MenuItem>
+                      <MenuItem value="NO">NO</MenuItem>
+                      <MenuItem value="YES">YES</MenuItem>
+                    </Select>
+                  </FormControl>
+                ) : c === "EARLY EXIT ?" ? (
+                  <FormControl fullWidth size="small">
+                    <Select
+                      value={r[c] || ""}
+                      onChange={(e) => {
+                        const newValue = e.target.value;
+                        updateCell(r._id, c, newValue);
+                        if (newValue === "YES") {
+                          validateEarlyExit(r._id, newValue);
+                        }
+                      }}
+                      variant="outlined"
+                      displayEmpty
+                      sx={{
+                        borderRadius: 0,
+                        height: "32px",
+                        backgroundColor: r[c] === "YES" ? "rgba(245, 158, 11, 0.1)" : "transparent",
+                        "& .MuiSelect-select": {
+                          padding: "6px 8px",
+                          textAlign: "center",
+                          fontWeight: 600,
+                          fontSize: 12,
+                          color: r[c] === "YES" ? "#f59e0b" : r[c] === "NO" ? "#10b981" : "#6b7280",
+                        },
+                        "& fieldset": {
+                          borderColor: r[c] === "YES" ? "rgba(245, 158, 11, 0.5)" : "#d1d5db",
+                        },
+                      }}
+                    >
+                      <MenuItem value=""><em>Select...</em></MenuItem>
+                      <MenuItem value="NO">NO</MenuItem>
+                      <MenuItem value="YES">YES</MenuItem>
+                    </Select>
+                  </FormControl>
                 ) : (
                   <TextField
                     value={r[c] || ""}
@@ -2023,14 +2779,6 @@ export default function AccountPage({ accountKey, columns }) {
                         // Validate INSTRUMENT field when user finishes typing
                         if (c === "INTRUMENT") {
                           validateInstrument(r._id, e.target.value);
-                        }
-                        // Validate OVER RISKED field
-                        if (c === "OVER RISKED ?") {
-                          validateOverRisk(r._id, e.target.value);
-                        }
-                        // Validate EARLY EXIT field
-                        if (c === "EARLY EXIT ?") {
-                          validateEarlyExit(r._id, e.target.value);
                         }
                         // Validate CALCULATED RISK field
                         if (c === "CALCULATED RISK") {
@@ -2108,8 +2856,8 @@ export default function AccountPage({ accountKey, columns }) {
                     }}
                   >
                     <DeleteIcon sx={{ fontSize: 18 }} />
-                </IconButton>
-              </Tooltip>
+                  </IconButton>
+                </Tooltip>
             </Box>
           </React.Fragment>
         ))}
@@ -2873,6 +3621,74 @@ export default function AccountPage({ accountKey, columns }) {
         </DialogActions>
       </Dialog>
 
+      {/* Risk Management Dialog */}
+      <Dialog
+        open={riskManagementDialogOpen}
+        onClose={() => setRiskManagementDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{
+          sx: {
+            bgcolor: "background.paper",
+            borderRadius: 3,
+            maxHeight: "90vh",
+          }
+        }}
+      >
+        <DialogTitle sx={{ 
+          fontWeight: 600, 
+          fontSize: 18,
+          background: "linear-gradient(135deg, #7f1d1d 0%, #991b1b 100%)",
+          color: "white",
+          borderBottom: "1px solid rgba(127, 29, 29, 0.2)",
+        }}>
+          <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              ⚖️ Risk Management Calculator
+              <Chip 
+                label={accountKey.split("/")[1]} 
+                size="small" 
+                sx={{ 
+                  bgcolor: "rgba(255, 255, 255, 0.2)", 
+                  color: "white",
+                  fontWeight: 500,
+                  fontSize: 11,
+                  border: "1px solid rgba(255, 255, 255, 0.3)",
+                }} 
+              />
+            </Box>
+            <Typography variant="caption" sx={{ color: "rgba(255, 255, 255, 0.8)" }}>
+              Calculate optimal risk per trade
+            </Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ p: 0, bgcolor: "background.default" }}>
+          <RiskManagement
+            accountName={accountKey.split("/")[1]}
+            accountType={accountKey.split("/")[0]}
+            riskSettings={riskSettings}
+            onSettingsChange={(newSettings) => {
+              setRiskSettings(newSettings);
+            }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ p: 2, borderTop: "1px solid", borderColor: "divider", bgcolor: "background.default" }}>
+          <Button 
+            onClick={() => setRiskManagementDialogOpen(false)} 
+            variant="contained" 
+            sx={{
+              bgcolor: "#7f1d1d",
+              color: "white",
+              "&:hover": {
+                bgcolor: "#991b1b",
+              },
+            }}
+          >
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Custom Dashboard Dialog */}
       <Dialog
         open={dashboardDialogOpen}
@@ -3007,9 +3823,31 @@ export default function AccountPage({ accountKey, columns }) {
             {/* Previous Month Section */}
             {previousMonthData && (
               <Box>
-                <Typography variant="h6" sx={{ fontWeight: 600, color: "#991b1b", mb: 2 }}>
-                  📋 Previous Month ({previousMonthData.monthKey})
-                </Typography>
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
+                  <Typography variant="h6" sx={{ fontWeight: 600, color: "#991b1b" }}>
+                    📋 Previous Month ({previousMonthData.monthKey})
+                  </Typography>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<DownloadIcon />}
+                    onClick={() => exportTradesToExcel(
+                      previousMonthData.trades,
+                      previousMonthData.monthKey,
+                      accountKey.split("/")[1]
+                    )}
+                    sx={{
+                      borderColor: "#991b1b",
+                      color: "#991b1b",
+                      "&:hover": {
+                        borderColor: "#7f1d1d",
+                        bgcolor: "rgba(153, 27, 27, 0.08)",
+                      },
+                    }}
+                  >
+                    Download Excel
+                  </Button>
+                </Box>
                 <Card sx={{ bgcolor: "background.paper", border: "1px solid", borderColor: "divider" }}>
                   <CardContent>
                     <Stack spacing={1.5}>
@@ -3152,12 +3990,29 @@ export default function AccountPage({ accountKey, columns }) {
       {/* Rename Account Dialog */}
       <Dialog
         open={renameDialogOpen}
-        onClose={() => setRenameDialogOpen(false)}
+        onClose={() => {
+          setRenameDialogOpen(false);
+          setNewAccountName("");
+        }}
         maxWidth="sm"
         fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 2,
+          }
+        }}
       >
-        <DialogTitle sx={{ fontWeight: 600, color: "#7f1d1d" }}>
-          ✏️ Rename Account
+        <DialogTitle sx={{ 
+          fontWeight: 600, 
+          color: "#7f1d1d",
+          display: "flex",
+          alignItems: "center",
+          gap: 1,
+          borderBottom: "1px solid #e5e7eb",
+          pb: 2,
+        }}>
+          <Box sx={{ color: "#7f1d1d", fontSize: 24 }}>✏️</Box>
+          Rename Account
         </DialogTitle>
         <DialogContent>
           <TextField
@@ -3168,6 +4023,7 @@ export default function AccountPage({ accountKey, columns }) {
             variant="outlined"
             value={newAccountName}
             onChange={(e) => setNewAccountName(e.target.value)}
+            placeholder={accountKey.split("/")[1]}
             sx={{
               mt: 2,
               "& .MuiOutlinedInput-root": {
@@ -3179,33 +4035,42 @@ export default function AccountPage({ accountKey, columns }) {
                 },
               },
             }}
+            onKeyPress={(e) => {
+              if (e.key === 'Enter' && newAccountName.trim() && newAccountName.trim() !== accountKey.split("/")[1]) {
+                handleRename();
+              }
+            }}
           />
           <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
             Note: This will update the account name everywhere
           </Typography>
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => setRenameDialogOpen(false)} color="inherit">
+          <Button onClick={() => {
+            setRenameDialogOpen(false);
+            setNewAccountName("");
+          }} color="inherit">
             Cancel
           </Button>
           <Button 
-            onClick={() => {
-              // This would need to be implemented in the parent Dashboard component
-              // For now, just show an alert
-              alert(`Account rename feature coming soon!\n\nThis will rename "${accountKey.split("/")[1]}" to "${newAccountName}"\n\nRequires update to account list management.`);
-              setRenameDialogOpen(false);
-            }}
+            onClick={handleRename}
             variant="contained"
             sx={{
               bgcolor: "#7f1d1d",
               "&:hover": { bgcolor: "#991b1b" }
             }}
-            disabled={!newAccountName.trim() || newAccountName === accountKey.split("/")[1]}
+            disabled={!newAccountName.trim() || newAccountName.trim() === accountKey.split("/")[1]}
           >
             Rename
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Daily Quotes Dialog */}
+      <DailyQuotesPage
+        open={quotesDialogOpen}
+        onClose={() => setQuotesDialogOpen(false)}
+      />
     </Box>
   );
 }
